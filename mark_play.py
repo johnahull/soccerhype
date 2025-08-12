@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 # mark_play.py
-# Build standardized proxies and mark exact frame/coords for each clip.
+# Multi-athlete: choose an athlete folder under athletes/, mark clips on a standardized proxy.
 #
-# Proxies match render geometry/timing:
-#   -noautorotate, setsar=1, scale=1920:-2, fps=30, H.264 (video only OK)
+# Structure (already created by you):
+#   athletes/<athlete_name>/
+#     ├─ clips_in/     (place source videos here)
+#     ├─ work/         (created by this script)
+#     ├─ output/       (unused here; renderer writes final here)
+#     └─ project.json
+#
+# Features:
+#   - Scans athletes/ and shows a numbered menu to pick an athlete folder.
+#   - Builds standardized video-only proxies (1920 wide, CFR 30, setsar=1, -noautorotate).
+#   - Full transport controls + mouse-wheel radius, presets, etc.
+#   - Saves standardized coords (marker_x_std / marker_y_std) + spot_frame_std.
 #
 # Controls (window focused):
 #   Space .......... Play/Pause
@@ -15,52 +25,86 @@
 #   s .............. Set spot_time & spot_frame_std = current frame
 #   a .............. Set start_trim = current time
 #   b .............. Set end_trim = clip_end - current time
-#   + / - .......... Increase / decrease ring radius (standardized px)
+#   + / - .......... Increase / decrease ring radius (std px)
+#   Mouse wheel .... Adjust ring radius (Shift+wheel = larger steps)
+#   1..5 ........... Radius presets (40, 60, 72, 90, 120 px)
 #   Left click ..... Set ring center at cursor (standardized coords)
 #   r .............. Reset marker & trims & spot
 #   Enter .......... Accept this clip (uses current frame if you never pressed 's')
 #   q / Esc ........ Skip this clip
 #
-# Output: project.json with include_intro, player (optional), and per-clip fields:
-#   file, std_file, marker_x_std, marker_y_std, radius_std,
-#   start_trim, end_trim, spot_time, spot_frame_std
-#
 # Usage:
 #   python mark_play.py
+#   python mark_play.py --athlete "jane_smith"
+#   python mark_play.py --dir athletes/jane_smith
 #
-# Requires: OpenCV (cv2), FFmpeg installed on system.
+# Requires: OpenCV (cv2), FFmpeg
 
+import argparse
 import cv2
-import pathlib
 import json
+import pathlib
 import subprocess
 import sys
 from typing import List, Dict, Any
 
-PROJECT_JSON = pathlib.Path("project.json")
-SRC = pathlib.Path("clips_in")
-WORK = pathlib.Path("work")
-PROX = WORK / "proxies"
+ROOT = pathlib.Path.cwd()
+ATHLETES = ROOT / "athletes"
 
 TARGET_W = 1920
 FPS = 30
 CRF = 18
+RADIUS_MIN = 6
+RADIUS_MAX = 600
+VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".avi"}
 
-def ensure_dirs():
-    WORK.mkdir(exist_ok=True)
-    PROX.mkdir(parents=True, exist_ok=True)
-
-def list_clips() -> List[pathlib.Path]:
-    return sorted([p for p in SRC.iterdir()
-                   if p.suffix.lower() in (".mp4", ".mov", ".m4v", ".mkv", ".avi")])
-
-def run(cmd):
+def run(cmd: list[str]):
     print("•", " ".join(cmd))
     if subprocess.call(cmd) != 0:
         raise RuntimeError("Command failed")
 
+def find_athletes() -> list[pathlib.Path]:
+    if not ATHLETES.exists():
+        return []
+    return sorted([p for p in ATHLETES.iterdir() if p.is_dir()])
+
+def choose_athlete_interactive() -> pathlib.Path | None:
+    options = find_athletes()
+    if not options:
+        print("No athlete folders found under ./athletes/")
+        return None
+    print("\nSelect an athlete:")
+    for i, p in enumerate(options, 1):
+        print(f"  {i}. {p.name}")
+    print("  q. Quit")
+    while True:
+        choice = input("Enter number: ").strip().lower()
+        if choice in ("q", "quit", "exit"):
+            return None
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(options):
+                return options[idx-1]
+        print("Invalid choice. Try again.")
+
+def validate_athlete_dir(base: pathlib.Path) -> dict[str, pathlib.Path]:
+    clips_in = base / "clips_in"
+    work = base / "work"
+    output = base / "output"
+    prox = work / "proxies"
+    for p in (clips_in, output):
+        if not p.exists():
+            print(f"Missing required folder: {p}")
+            raise SystemExit(1)
+    work.mkdir(exist_ok=True)
+    prox.mkdir(parents=True, exist_ok=True)
+    return {"clips_in": clips_in, "work": work, "output": output, "prox": prox}
+
+def list_clips(clips_in: pathlib.Path) -> List[pathlib.Path]:
+    return sorted([p for p in clips_in.iterdir() if p.suffix.lower() in VIDEO_EXTS])
+
 def build_proxy(src: pathlib.Path, dst: pathlib.Path):
-    """Standardize to 1920x?, 30fps, setsar=1, -noautorotate, H.264 (video-only)."""
+    """Standardize to 1920x?, 30fps, setsar=1, -noautorotate, H.264, video-only."""
     vf = f"scale={TARGET_W}:-2:flags=bicubic,fps={FPS},setsar=1"
     run(["ffmpeg","-y","-noautorotate","-i",str(src),
          "-vf",vf,
@@ -83,20 +127,17 @@ def draw_hud(frame, t, fps, frame_idx, total_frames, rate, paused,
              radius_disp, start_trim, end_trim, spot_time, spot_frame, marker_disp):
     overlay = frame.copy()
     line1 = f"t={t:.2f}s  fps={fps:.2f}  frame={frame_idx}/{max(0,total_frames-1)}  rate={rate:.2f}x  {'PAUSED' if paused else 'PLAY'}"
-    line2 = f"radius={radius_disp}  start_trim={start_trim:.2f}s  end_trim={end_trim:.2f}s  spot={spot_time:.2f}s  spot_f={spot_frame if spot_frame is not None else '-'}"
+    line2 = f"radius={radius_disp}px  start_trim={start_trim:.2f}s  end_trim={end_trim:.2f}s  spot={spot_time:.2f}s  spot_f={spot_frame if spot_frame is not None else '-'}"
     cv2.putText(overlay, line1, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2, cv2.LINE_AA)
     cv2.putText(overlay, line2, (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2, cv2.LINE_AA)
     if marker_disp:
-        cv2.circle(overlay, marker_disp, radius_disp, (0,0,255), 3)  # red ring preview
+        cv2.circle(overlay, marker_disp, radius_disp, (0,0,255), 3)
     cv2.addWeighted(overlay, 1.0, frame, 0.0, 0, frame)
     return frame
 
-def autosave(project: Dict[str, Any]):
-    try:
-        PROJECT_JSON.write_text(json.dumps(project, indent=2))
-        print("  ↳ autosaved project.json")
-    except Exception as e:
-        print(f"  ! autosave failed: {e}")
+def autosave(project_path: pathlib.Path, project: Dict[str, Any]):
+    project_path.write_text(json.dumps(project, indent=2))
+    print(f"  ↳ autosaved {project_path}")
 
 def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index: int):
     cap = cv2.VideoCapture(str(proxy_path))
@@ -126,19 +167,26 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
     end_trim = 0.0
 
     def on_mouse(event, x, y, flags, param):
-        nonlocal marker
+        nonlocal marker, radius
         if event == cv2.EVENT_LBUTTONDOWN:
             fx = int(round(x / max(scale, 1e-6)))
             fy = int(round(y / max(scale, 1e-6)))
             fx = clamp(fx, 0, w - 1)
             fy = clamp(fy, 0, h - 1)
             marker = (fx, fy)
+        elif event == cv2.EVENT_MOUSEWHEEL:
+            step = 12 if (flags & cv2.EVENT_FLAG_SHIFTKEY) else 6
+            if flags > 0:
+                radius = clamp(radius + step, RADIUS_MIN, RADIUS_MAX)
+            else:
+                radius = clamp(radius - step, RADIUS_MIN, RADIUS_MAX)
 
     cv2.setMouseCallback(win, on_mouse)
 
     print(f"\n=== Marking (proxy): {orig_path.name} ===")
     print("Space: play/pause | ,/. frame step | ←/→ ±0.5s | ↑/↓ ±5s | [/] speed | g goto | s set spot | a/b trims")
-    print("+/- radius | click to set ring | r reset | Enter accept | q/Esc skip")
+    print("+/- or mouse wheel to change radius (Shift+wheel = larger step), presets 1=40 2=60 3=72 4=90 5=120")
+    print("Click to set ring | r reset | Enter accept | q/Esc skip")
 
     while True:
         cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
@@ -209,16 +257,19 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
             end_trim = max(0.0, dur - now)
             print(f"end_trim = {end_trim:.3f}s")
         elif key == ord('+'):
-            radius = min(600, radius + 4)
+            radius = clamp(radius + 6, RADIUS_MIN, RADIUS_MAX)
         elif key == ord('-'):
-            radius = max(6, radius - 4)
+            radius = clamp(radius - 6, RADIUS_MIN, RADIUS_MAX)
+        elif key in (ord('1'), ord('2'), ord('3'), ord('4'), ord('5')):
+            presets = {ord('1'):40, ord('2'):60, ord('3'):72, ord('4'):90, ord('5'):120}
+            radius = presets[key]
+            print(f"radius preset -> {radius}px")
         elif key in (ord('r'), ord('R')):
             marker = (w//2, h//2); radius = 72
             start_trim = 0.0; end_trim = 0.0
             spot_time = 0.0; spot_frame_std = None
             print("Reset marker, trims, and spot.")
         elif key == 13:  # Enter
-            # If user never pressed 's', use current frame as spot
             if spot_frame_std is None:
                 spot_frame_std = current_frame
                 spot_time = current_frame / fps if fps > 0 else 0.0
@@ -238,11 +289,39 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
             }
 
 def main():
-    ensure_dirs()
-    clips = list_clips()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
+    ap.add_argument("--dir", type=str, help="Full path to athlete folder")
+    args = ap.parse_args()
+
+    # Resolve athlete base directory
+    if args.dir:
+        base = pathlib.Path(args.dir).resolve()
+    elif args.athlete:
+        base = (ATHLETES / args.athlete).resolve()
+    else:
+        base = choose_athlete_interactive()
+        if base is None:
+            sys.exit(0)
+
+    if not base.exists() or not base.is_dir():
+        print(f"Invalid athlete directory: {base}")
+        sys.exit(1)
+
+    paths = validate_athlete_dir(base)
+    clips = list_clips(paths["clips_in"])
     if not clips:
-        print("No clips found in clips_in/")
-        return
+        print(f"No clips found in {paths['clips_in']}")
+        sys.exit(0)
+
+    project_path = base / "project.json"
+
+    # If project exists, ask before overwriting
+    if project_path.exists():
+        ans = input(f"{project_path} exists. Overwrite? [y/N]: ").strip().lower()
+        if ans != "y":
+            print("Aborted.")
+            sys.exit(0)
 
     include_intro = input("Include intro screen? [Y/n]: ").strip().lower() != "n"
     player = {}
@@ -261,7 +340,7 @@ def main():
     project = {"player": player, "include_intro": include_intro, "clips": []}
 
     for idx, src in enumerate(clips, 1):
-        proxy = PROX / f"clip{idx:02d}_std.mp4"
+        proxy = paths["prox"] / f"clip{idx:02d}_std.mp4"
         try:
             build_proxy(src, proxy)
         except Exception as e:
@@ -271,17 +350,12 @@ def main():
         data = mark_on_proxy(src, proxy, idx)
         if data is not None:
             project["clips"].append(data)
-            autosave(project)  # save progress after each accepted clip
+            autosave(project_path, project)
         else:
             print(f"Skipped: {src.name}")
 
-    # Final save
-    try:
-        PROJECT_JSON.write_text(json.dumps(project, indent=2))
-        print(f"\nSaved {PROJECT_JSON}. Next: python render_highlight.py")
-    except Exception as e:
-        print(f"Failed to save {PROJECT_JSON}: {e}")
-        sys.exit(1)
+    project_path.write_text(json.dumps(project, indent=2))
+    print(f"\nSaved {project_path}. Next: python render_highlight.py --dir \"{base}\"")
 
 if __name__ == "__main__":
     main()
