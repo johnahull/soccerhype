@@ -19,17 +19,6 @@ This is a simple socer highlight video creation tool. It's purpose is to combine
 
 ---
 
-## 📂 Folder Structure
-athletes/
-<athlete_name>/
-clips_in/ # Drop source clips here
-work/ # Temporary working files (auto-cleared unless --keep-work)
-proxies/
-output/ # Final video output (final.mp4)
-
-
----
-
 ## 🚀 Quick Start
 
 1️⃣ Install requirements
