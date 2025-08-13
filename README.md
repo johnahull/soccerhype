@@ -102,7 +102,7 @@ Example:
 
 python batch_render.py --names "Jane Smith" "Phia Hull" --force
 
-🛠 Requirements
+##🛠 Requirements
 
 OS: Ubuntu 24.04+ (should also work on other Linux distros)
 
@@ -116,7 +116,7 @@ opencv-python
 
 Pillow
 
-📌 Notes
+##📌 Notes
 
 Audio is stripped from all outputs to avoid licensing issues.
 
@@ -128,11 +128,11 @@ The red ring overlay is generated dynamically from the marking data.
 
 For exact ring placement, the system uses pixel coordinates from the marking session — ensure your mark_play.py and render_highlight.py use the same scaled resolution.
 
-📄 License
+##📄 License
 
 This project is released under the MIT License.
 You are free to use, modify, and distribute it as long as the license file is included.
 
-🤝 Contributing
+##🤝 Contributing
 
 PRs welcome! If you have bug fixes, new features, or performance improvements, open a pull request.
