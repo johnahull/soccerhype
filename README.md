@@ -32,7 +32,7 @@ output/ # Final video output (final.mp4)
 
 ## 🚀 Quick Start
 
-### 1️⃣ Install requirements
+1️⃣ Install requirements
 ```bash
 sudo apt update
 sudo apt install ffmpeg python3-opencv python3-pil
