@@ -33,14 +33,13 @@ output/ # Final video output (final.mp4)
 ## 🚀 Quick Start
 
 1️⃣ Install requirements
-```bash
 sudo apt update
 sudo apt install ffmpeg python3-opencv python3-pil
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-### 2️⃣ **Create athlete folder**
+2️⃣ Create athlete folder
 python create_athlete.py "Jane Smith"
 
 This will create:
