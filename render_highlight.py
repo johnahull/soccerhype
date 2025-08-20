@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+##!/usr/bin/env python3
 # render_highlight.py
 # Multi-athlete renderer: choose athlete folder and render audio-free highlights.
 #
@@ -24,12 +24,16 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
+# Render / proxy params
 FPS = 30
 CRF = 18
+PROXY_W = 1920
 VIDEO_ONLY = True
 
+# -------------------- utils --------------------
+
 def run(cmd_list):
-    print("•", " ".join(cmd_list))
+    print("•", " ".join(map(str, cmd_list)))
     if subprocess.call(cmd_list) != 0:
         raise RuntimeError("Command failed")
 
@@ -58,7 +62,6 @@ def choose_athlete_interactive() -> pathlib.Path | None:
         print("Invalid choice. Try again.")
 
 def ensure_dirs(base: pathlib.Path):
-    (base / "work").mkdir(exist_ok=True)
     (base / "work" / "proxies").mkdir(parents=True, exist_ok=True)
     (base / "output").mkdir(exist_ok=True)
 
@@ -68,6 +71,12 @@ def clear_work_dir(work: pathlib.Path):
             p.unlink()
         except IsADirectoryError:
             shutil.rmtree(p)
+
+def resolve_path(base: pathlib.Path, p: str | None) -> pathlib.Path | None:
+    if not p:
+        return None
+    path = pathlib.Path(p)
+    return path if path.is_absolute() else (base / path)
 
 def duration_of(path: pathlib.Path) -> float:
     p = subprocess.run(
@@ -115,12 +124,42 @@ def proxy_frame_count(path: pathlib.Path) -> int:
 def to_frame(t: float, fps: float) -> int:
     return max(0, int(round(t * fps)))
 
-# ----- Ring + Slate -----
+# -------------------- proxy builder --------------------
+
+def ensure_proxy(src_path: pathlib.Path, std_path: pathlib.Path):
+    """
+    Create the standardized proxy if it doesn't exist.
+      - Scale to width=1920 (keep AR), CFR=30
+      - H.264 CRF 18
+      - Strip audio
+    """
+    std_path.parent.mkdir(parents=True, exist_ok=True)
+    if std_path.exists():
+        return
+    if not src_path.exists():
+        raise RuntimeError(f"Source clip not found: {src_path}")
+
+    cmd = [
+        "ffmpeg","-y",
+        "-i", str(src_path),
+        "-vf", f"scale={PROXY_W}:-2,fps={FPS}",
+        "-an",
+        "-c:v","libx264","-preset","veryfast","-crf", str(CRF),
+        "-pix_fmt","yuv420p",
+        str(std_path)
+    ]
+    print("•", " ".join(cmd))
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if proc.returncode != 0:
+        print(proc.stdout)
+        raise RuntimeError(f"Failed to build proxy for {src_path}")
+
+# -------------------- ring + slate --------------------
 
 def make_ring_png(out_path: pathlib.Path, radius: int, thickness: int = 8):
     size = max(2, radius * 2 + thickness * 6)
-    main_color  = (200, 0, 0, 235)
-    glow_color  = (200, 0, 0, 110)
+    main_color  = (200, 0, 0, 235)  # dark red
+    glow_color  = (200, 0, 0, 110)  # outer glow
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     bbox1 = [(size/2 - radius, size/2 - radius), (size/2 + radius, size/2 + radius)]
@@ -202,7 +241,7 @@ def make_slate(player: dict, out_path: pathlib.Path, work: pathlib.Path):
         str(out_path)
     ])
 
-# ----- Debug -----
+# -------------------- debug --------------------
 
 def debug_mark(std_mp4: pathlib.Path, frame_idx: int, px: int, py: int, work: pathlib.Path, tag: str):
     frm = work / f"debug_{tag}_frame.png"
@@ -218,7 +257,7 @@ def debug_mark(std_mp4: pathlib.Path, frame_idx: int, px: int, py: int, work: pa
     im.save(out)
     print(f"🔍 Debug saved: {out}")
 
-# ----- Segments (video-only CFR 30) -----
+# -------------------- segments (video-only CFR 30) --------------------
 
 def build_video_frames(std_mp4: pathlib.Path, start_f: int, end_f: int, out_v: pathlib.Path):
     if end_f < start_f:
@@ -240,7 +279,7 @@ def concat_videos(files: list[pathlib.Path], out_path: pathlib.Path):
          "-pix_fmt","yuv420p",
          str(out_path)])
 
-# ----- Freeze + compose -----
+# -------------------- freeze + compose --------------------
 
 def make_freeze_with_spot(std_mp4: pathlib.Path, px: int, py: int, radius: int,
                           out_mp4: pathlib.Path, start_trim: float, end_trim: float,
@@ -284,7 +323,7 @@ def make_freeze_with_spot(std_mp4: pathlib.Path, px: int, py: int, radius: int,
 
     concat_videos(parts, out_mp4)
 
-# ----- main -----
+# -------------------- main --------------------
 
 def main():
     ap = argparse.ArgumentParser(description="Render highlights for an athlete (audio-free)")
@@ -317,13 +356,20 @@ def main():
     data = json.loads(project_path.read_text())
     include_intro = bool(data.get("include_intro", True))
 
-    # Render each marked clip
     processed = []
     for i, c in enumerate(data.get("clips", []), 1):
-        std_path = pathlib.Path(c.get("std_file",""))
-        if not std_path.exists():
-            raise RuntimeError(f"Proxy missing for clip {i}: {std_path}")
+        # Resolve std_file if present, otherwise use default path
+        std_path = resolve_path(base, c.get("std_file"))
+        if std_path is None:
+            std_path = base / "work" / "proxies" / f"clip{i:02d}_std.mp4"
 
+        # Ensure proxy exists (build it if missing) using original file path
+        src_path = resolve_path(base, c.get("file"))
+        if src_path is None:
+            raise RuntimeError(f"Clip {i}: source 'file' missing in project.json")
+        ensure_proxy(src_path, std_path)
+
+        # Marker/spot values (prefer *_std if present)
         mx = int(c.get("marker_x_std", c.get("marker_x", 960)))
         my = int(c.get("marker_y_std", c.get("marker_y", 540)))
         radius_std = int(c.get("radius_std", c.get("radius", 72)))
