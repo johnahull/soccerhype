@@ -1,0 +1,13 @@
+# Core
+opencv-python
+pillow
+
+# JSON/YAML helpers (if you extend later)
+pyyaml
+
+# For interactive menus / GUI ordering
+tk
+
+# For debugging / development
+pytest
+
