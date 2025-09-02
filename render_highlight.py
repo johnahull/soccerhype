@@ -186,7 +186,76 @@ def _load_font(size: int):
             pass
     return ImageFont.load_default()
 
-def make_slate(player: dict, out_path: pathlib.Path, work: pathlib.Path):
+def find_intro_files(intro_dir: pathlib.Path) -> dict:
+    """Find image and video files in the intro directory."""
+    if not intro_dir.exists():
+        return {"images": [], "videos": []}
+    
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
+    video_exts = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm"}
+    
+    images = []
+    videos = []
+    
+    for file in intro_dir.iterdir():
+        if file.is_file():
+            ext = file.suffix.lower()
+            if ext in image_exts:
+                images.append(file)
+            elif ext in video_exts:
+                videos.append(file)
+    
+    return {"images": sorted(images), "videos": sorted(videos)}
+
+def choose_intro_media(intro_files: dict) -> pathlib.Path | None:
+    """Interactively choose an intro media file from available options."""
+    images = intro_files["images"]
+    videos = intro_files["videos"]
+    
+    if not images and not videos:
+        return None
+    
+    print("\nAvailable intro media files:")
+    options = []
+    
+    if images:
+        print("  Pictures:")
+        for i, img in enumerate(images, 1):
+            print(f"    {i}. {img.name}")
+            options.append(img)
+    
+    if videos:
+        print("  Videos:")
+        start_num = len(images) + 1
+        for i, vid in enumerate(videos, start_num):
+            print(f"    {i}. {vid.name}")
+            options.append(vid)
+    
+    print("  n. No intro media (text-only slate)")
+    
+    while True:
+        choice = input("Choose intro media (number or 'n'): ").strip().lower()
+        if choice == 'n':
+            return None
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(options):
+                return options[idx-1]
+        print("Invalid choice. Try again.")
+
+def make_slate(player: dict, out_path: pathlib.Path, work: pathlib.Path, intro_media: pathlib.Path | None = None):
+    """Create intro slate with optional picture or video integration."""
+    
+    # If intro_media is a video file, handle it directly
+    if intro_media and intro_media.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm"}:
+        make_slate_with_video(player, out_path, work, intro_media)
+        return
+    
+    # Create image-based slate (with or without picture)
+    make_slate_with_image(player, out_path, work, intro_media)
+
+def make_slate_with_image(player: dict, out_path: pathlib.Path, work: pathlib.Path, intro_image: pathlib.Path | None = None):
+    """Create slate with optional player picture embedded."""
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), (0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -213,33 +282,131 @@ def make_slate(player: dict, out_path: pathlib.Path, work: pathlib.Path):
     if email: lines.append((email,         36))
     if phone: lines.append((phone,         36))
 
+    # Layout calculation considering picture placement
+    if intro_image:
+        # Picture on left, text on right layout
+        picture_area_w = W // 2  # Left half for picture
+        text_start_x = picture_area_w + 50  # Add some padding
+        text_area_w = W - text_start_x - 50  # Right half minus padding
+        
+        # Load and resize picture
+        try:
+            player_pic = Image.open(intro_image).convert("RGBA")
+            # Calculate picture size (maintain aspect ratio, fit in left half)
+            pic_max_w = picture_area_w - 100  # Leave padding
+            pic_max_h = H - 200  # Leave top/bottom padding
+            
+            pic_w, pic_h = player_pic.size
+            scale = min(pic_max_w / pic_w, pic_max_h / pic_h, 1.0)
+            new_w, new_h = int(pic_w * scale), int(pic_h * scale)
+            player_pic = player_pic.resize((new_w, new_h), Image.LANCZOS)
+            
+            # Center picture in left area
+            pic_x = (picture_area_w - new_w) // 2
+            pic_y = (H - new_h) // 2
+            
+            # Create a background layer for the image
+            pic_layer = Image.new("RGBA", img.size, (0,0,0,0))
+            pic_layer.paste(player_pic, (pic_x, pic_y), player_pic)
+            img = img.convert("RGBA")
+            img = Image.alpha_composite(img, pic_layer).convert("RGB")
+            # Recreate draw object after compositing
+            draw = ImageDraw.Draw(img)
+            
+        except Exception as e:
+            print(f"Warning: Could not load picture {intro_image}: {e}")
+            text_start_x = 0
+            text_area_w = W
+    else:
+        # No picture - center text normally
+        text_start_x = 0
+        text_area_w = W
+
+    # Calculate text layout
     spacing = 18
     fonts, widths, heights = [], [], []
     for text, sz in lines:
         f = _load_font(sz); fonts.append(f)
         l,t,r,b = draw.textbbox((0,0), text, font=f)
         widths.append(r-l); heights.append(b-t)
+    
     total_h = sum(heights) + spacing * (len(lines)-1) if lines else 0
     y = (H - total_h) // 2
 
+    # Draw text
     for (text, _), f, w, h in zip(lines, fonts, widths, heights):
-        x = (W - w) // 2
+        if intro_image:
+            # Center text in right half
+            x = text_start_x + (text_area_w - w) // 2
+        else:
+            # Center text across full width
+            x = (W - w) // 2
         draw.text((x, y), text, fill=(255,255,255), font=f)
         y += h + spacing
 
     slate_png = work / "slate.png"
     img.save(slate_png)
 
+    # Convert to video
     run([
         "ffmpeg","-y",
         "-loop","1","-i",str(slate_png),
-        "-t","3",
+        "-t","5",
         "-r",str(FPS),
         "-c:v","libx264","-preset","veryfast","-crf",str(CRF),
         "-pix_fmt","yuv420p",
         "-an",
         str(out_path)
     ])
+
+def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Path, intro_video: pathlib.Path):
+    """Create slate using intro video as background with text overlay."""
+    temp_resized = work / "intro_resized.mp4"
+    temp_with_text = work / "intro_with_text.mp4"
+    
+    # First, resize intro video to 1920x1080 and ensure it's exactly 5 seconds
+    run([
+        "ffmpeg", "-y",
+        "-i", str(intro_video),
+        "-vf", f"scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps={FPS}",
+        "-t", "5",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF),
+        "-pix_fmt", "yuv420p",
+        "-an",
+        str(temp_resized)
+    ])
+    
+    # Create text overlay
+    name = (player.get("name") or "Player Name")
+    pos = (player.get("position") or "")
+    grad = str(player.get("grad_year") or "")
+    
+    # Build filter for text overlay
+    text_filters = []
+    
+    # Main name with background
+    text_filters.append(f"drawtext=text='{name}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=64:fontcolor=white:x=(w-text_w)/2:y=h*0.75:box=1:boxcolor=black@0.7:boxborderw=10")
+    
+    # Position and grad year
+    if pos or grad:
+        pos_line = pos + (f"  •  Class of {grad}" if grad else "")
+        text_filters.append(f"drawtext=text='{pos_line}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=40:fontcolor=white:x=(w-text_w)/2:y=h*0.82:box=1:boxcolor=black@0.7:boxborderw=8")
+    
+    filter_str = ",".join(text_filters)
+    
+    # Apply text overlay
+    run([
+        "ffmpeg", "-y",
+        "-i", str(temp_resized),
+        "-vf", filter_str,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF),
+        "-pix_fmt", "yuv420p",
+        "-an",
+        str(out_path)
+    ])
+    
+    # Clean up temp file
+    temp_resized.unlink(missing_ok=True)
 
 # -------------------- debug --------------------
 
@@ -330,6 +497,7 @@ def main():
     ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
     ap.add_argument("--dir", type=str, help="Full path to athlete folder")
     ap.add_argument("--keep-work", action="store_true")
+    ap.add_argument("--reset-intro", action="store_true", help="Reset intro media selection and choose again")
     args = ap.parse_args()
 
     if args.dir:
@@ -355,6 +523,38 @@ def main():
 
     data = json.loads(project_path.read_text())
     include_intro = bool(data.get("include_intro", True))
+    
+    # Handle intro media selection if intro is enabled
+    if include_intro:
+        # Check if intro media has already been selected (and not reset)
+        if "intro_media" not in data or args.reset_intro:
+            print(f"\n🎬 Setting up intro slate for {base.name}")
+            
+            # Check for intro media files
+            intro_dir = base / "intro"
+            intro_files = find_intro_files(intro_dir)
+            intro_media_path = None
+            
+            if intro_files["images"] or intro_files["videos"]:
+                intro_media = choose_intro_media(intro_files)
+                if intro_media:
+                    # Store relative path in project.json
+                    intro_media_path = str(intro_media.relative_to(base))
+                    print(f"Selected intro media: {intro_media.name}")
+                else:
+                    print("Using text-only slate")
+            else:
+                print("No intro media files found - using text-only slate")
+            
+            # Save the selection to project.json
+            data["intro_media"] = intro_media_path
+            project_path.write_text(json.dumps(data, indent=2))
+        else:
+            intro_media_path = data.get("intro_media")
+            if intro_media_path:
+                print(f"Using previously selected intro media: {pathlib.Path(intro_media_path).name}")
+            else:
+                print("Using text-only slate")
 
     processed = []
     for i, c in enumerate(data.get("clips", []), 1):
@@ -396,7 +596,17 @@ def main():
     outputs = [body]
     if include_intro:
         slate = work / "slate.mp4"
-        make_slate(data.get("player", {}), slate, work)
+        
+        # Get intro media from project.json
+        intro_media = None
+        intro_media_path = data.get("intro_media")
+        if intro_media_path:
+            intro_media = base / intro_media_path
+            if not intro_media.exists():
+                print(f"Warning: Intro media file not found: {intro_media}")
+                intro_media = None
+        
+        make_slate(data.get("player", {}), slate, work, intro_media)
         outputs = [slate, body]
 
     final = output / "final.mp4"
