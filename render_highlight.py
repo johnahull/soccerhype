@@ -260,6 +260,7 @@ def make_slate_with_image(player: dict, out_path: pathlib.Path, work: pathlib.Pa
     img = Image.new("RGB", (W, H), (0, 0, 0))
     draw = ImageDraw.Draw(img)
 
+    title = (player.get("title") or "")
     name  = (player.get("name") or "Player Name")
     pos   = (player.get("position") or "")
     grad  = str(player.get("grad_year") or "")
@@ -271,6 +272,8 @@ def make_slate_with_image(player: dict, out_path: pathlib.Path, work: pathlib.Pa
     phone = (player.get("phone") or "")
 
     lines = []
+    if title:
+        lines.append((title, 84))
     lines.append((name, 72))
     pos_line = pos + (f"  •  Class of {grad}" if grad else "")
     if pos_line.strip():
@@ -377,6 +380,7 @@ def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Pa
     ])
     
     # Create text overlay
+    title = (player.get("title") or "")
     name = (player.get("name") or "Player Name")
     pos = (player.get("position") or "")
     grad = str(player.get("grad_year") or "")
@@ -384,13 +388,24 @@ def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Pa
     # Build filter for text overlay
     text_filters = []
     
+    # Title (if provided)
+    if title:
+        text_filters.append(f"drawtext=text='{title}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=72:fontcolor=white:x=(w-text_w)/2:y=h*0.65:box=1:boxcolor=black@0.7:boxborderw=10")
+        # Adjust name position if title exists
+        name_y = "h*0.75"
+        pos_y = "h*0.82"
+    else:
+        # Original positioning when no title
+        name_y = "h*0.75"
+        pos_y = "h*0.82"
+    
     # Main name with background
-    text_filters.append(f"drawtext=text='{name}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=64:fontcolor=white:x=(w-text_w)/2:y=h*0.75:box=1:boxcolor=black@0.7:boxborderw=10")
+    text_filters.append(f"drawtext=text='{name}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=64:fontcolor=white:x=(w-text_w)/2:y={name_y}:box=1:boxcolor=black@0.7:boxborderw=10")
     
     # Position and grad year
     if pos or grad:
         pos_line = pos + (f"  •  Class of {grad}" if grad else "")
-        text_filters.append(f"drawtext=text='{pos_line}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=40:fontcolor=white:x=(w-text_w)/2:y=h*0.82:box=1:boxcolor=black@0.7:boxborderw=8")
+        text_filters.append(f"drawtext=text='{pos_line}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=40:fontcolor=white:x=(w-text_w)/2:y={pos_y}:box=1:boxcolor=black@0.7:boxborderw=8")
     
     filter_str = ",".join(text_filters)
     
