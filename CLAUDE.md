@@ -82,7 +82,18 @@ athletes/
 - **batch_render.py**: Parallel processing of multiple athletes
 
 **project.json Structure:**
-Contains athlete metadata (name, position, grad year, etc.) and clip data with standardized coordinates:
+Contains athlete metadata and clip data with standardized coordinates:
+
+*Player metadata fields:*
+- `name`: Player's full name
+- `title`: Optional title displayed above name on slate (e.g., "Fall 2025 Highlight Video")
+- `position`: Playing position
+- `grad_year`: Graduation year
+- `club_team`, `high_school`: Team affiliations
+- `height_weight`, `gpa`: Physical/academic stats
+- `email`, `phone`: Contact information
+
+*Clip data fields:*
 - `marker_x_std/marker_y_std`: Player position in 1920px-wide proxy
 - `spot_time/spot_frame_std`: When to show the freeze-frame ring
 - `radius_std`: Ring size in standardized pixels
@@ -113,7 +124,30 @@ Contains athlete metadata (name, position, grad year, etc.) and clip data with s
 - Videos are used as animated backgrounds with text overlays
 - Choose "No intro media" for traditional text-only slates
 
+**Slate Text Hierarchy:**
+- `title` (optional): Largest text above name (84pt for images, 72pt for video)
+- `name`: Player name (72pt for images, 64pt for video) 
+- `position` + `grad_year`: Combined on one line (44pt for images, 40pt for video)
+- Additional details: Club team, high school, height/weight, GPA, contact info (40pt/36pt)
+
 **Performance:**
 - Batch processing supports parallel execution (`--jobs N`)
 - Uses CRF 18 for high-quality output
 - Work files can be cleaned up with `--keep-work` option
+
+## Testing and Development
+
+**No formal test framework** is configured - this is a practical utility tool focused on video processing workflows rather than extensive unit testing.
+
+**Development workflow:**
+- Direct execution of Python scripts without build steps
+- Virtual environment activation required: `source .venv/bin/activate`
+- Dependencies managed via requirements.txt and setup.sh
+
+## Troubleshooting
+
+**Common issues:**
+- If OpenCV windows don't show: Ensure running in desktop session (not SSH without X)
+- FFmpeg errors: Verify `ffmpeg -version` shows libx264 and libfreetype support
+- Python import errors: Activate virtual environment and run `pip install -r requirements.txt`
+- Performance issues: Use `--jobs 1` for batch processing on limited hardware

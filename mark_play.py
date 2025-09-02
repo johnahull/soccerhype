@@ -328,6 +328,7 @@ def main():
     if include_intro:
         print("Enter player info (leave blank to omit a line):")
         player["name"] = input("Name: ").strip()
+        player["title"] = input("Title (e.g., Fall 2025 Highlight Video): ").strip()
         player["position"] = input("Position: ").strip()
         player["grad_year"] = input("Grad Year: ").strip()
         player["club_team"] = input("Club Team: ").strip()

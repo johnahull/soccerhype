@@ -1,0 +1,116 @@
+{
+  "player": {
+    "name": "Phia Hull",
+    "title": "",
+    "position": "MF",
+    "grad_year": "2026",
+    "club_team": "",
+    "high_school": "",
+    "height_weight": "",
+    "gpa": "",
+    "email": "",
+    "phone": ""
+  },
+  "include_intro": true,
+  "clips": [
+    {
+      "file": "clips_in/013808-highlight-2025-07-30.mp4",
+      "std_file": "work/proxies/clip01_std.mp4",
+      "marker_x_std": 357,
+      "marker_y_std": 734,
+      "radius_std": 108,
+      "start_trim": 0.0,
+      "end_trim": 0.0,
+      "spot_time": 1.6666666666666667,
+      "spot_frame_std": 50
+    },
+    {
+      "file": "clips_in/1 000350_-_Attacking.mp4",
+      "std_file": "work/proxies/clip02_std.mp4",
+      "marker_x_std": 1035,
+      "marker_y_std": 484,
+      "radius_std": 60,
+      "start_trim": 0.0,
+      "end_trim": 0.0,
+      "spot_time": 6.666666666666667,
+      "spot_frame_std": 200
+    },
+    {
+      "file": "clips_in/1 003901_-_Defense.mp4",
+      "std_file": "work/proxies/clip03_std.mp4",
+      "marker_x_std": 1473,
+      "marker_y_std": 502,
+      "radius_std": 56,
+      "start_trim": 0.0,
+      "end_trim": 0.0,
+      "spot_time": 3.7666666666666666,
+      "spot_frame_std": 113
+    },
+    {
+      "file": "clips_in/1 011215_-_7_Defending.mp4",
+      "std_file": "work/proxies/clip04_std.mp4",
+      "marker_x_std": 904,
+      "marker_y_std": 518,
+      "radius_std": 60,
+      "start_trim": 0.0,
+      "end_trim": 0.0,
+      "spot_time": 2.2666666666666666,
+      "spot_frame_std": 68
+    },
+    {
+      "file": "clips_in/1 014202_-_Shot_on_goal.mp4",
+      "std_file": "work/proxies/clip05_std.mp4",
+      "marker_x_std": 1107,
+      "marker_y_std": 525,
+      "radius_std": 64,
+      "start_trim": 0.0,
+      "end_trim": 0.0,
+      "spot_time": 9.566666666666666,
+      "spot_frame_std": 287
+    },
+    {
+      "file": "clips_in/2 004159_-_Ball_Touch.mp4",
+      "std_file": "work/proxies/clip06_std.mp4",
+      "marker_x_std": 1332,
+      "marker_y_std": 531,
+      "radius_std": 68,
+      "start_trim": 0.0,
+      "end_trim": 0.0,
+      "spot_time": 0.16666666666666666,
+      "spot_frame_std": 5
+    },
+    {
+      "file": "clips_in/3 000118_-_Phia_pass.mp4",
+      "std_file": "work/proxies/clip07_std.mp4",
+      "marker_x_std": 876,
+      "marker_y_std": 537,
+      "radius_std": 64,
+      "start_trim": 0.0,
+      "end_trim": 0.0,
+      "spot_time": 1.7333333333333334,
+      "spot_frame_std": 52
+    },
+    {
+      "file": "clips_in/6 000604_-_phia.mp4",
+      "std_file": "work/proxies/clip08_std.mp4",
+      "marker_x_std": 1066,
+      "marker_y_std": 489,
+      "radius_std": 56,
+      "start_trim": 0.0,
+      "end_trim": 0.0,
+      "spot_time": 2.2666666666666666,
+      "spot_frame_std": 68
+    },
+    {
+      "file": "clips_in/6 012906_-_Defense.mp4",
+      "std_file": "work/proxies/clip09_std.mp4",
+      "marker_x_std": 908,
+      "marker_y_std": 498,
+      "radius_std": 48,
+      "start_trim": 0.0,
+      "end_trim": 0.0,
+      "spot_time": 2.3,
+      "spot_frame_std": 69
+    }
+  ]
+}
