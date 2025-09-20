@@ -6,13 +6,20 @@ multiple playback speeds, zoom functionality, and better user feedback.
 """
 
 import tkinter as tk
-from tkinter import ttk
-import cv2
+from tkinter import ttk, messagebox
 import time
 import threading
 from PIL import Image, ImageTk
 from typing import Optional, Callable, Tuple
 import numpy as np
+
+# Import OpenCV with fallback
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    print("OpenCV (cv2) not available. Enhanced video player functionality will be limited.")
 
 class EnhancedVideoPlayer(tk.Frame):
     """Enhanced video player with advanced controls"""
@@ -158,6 +165,13 @@ class EnhancedVideoPlayer(tk.Frame):
 
     def load_video(self, video_path: str) -> bool:
         """Load a video file"""
+        if not CV2_AVAILABLE:
+            self.update_info("OpenCV not available - cannot load video")
+            messagebox.showerror("Missing Dependency",
+                               "OpenCV (cv2) is required for video playback.\n"
+                               "Please install it with: pip install opencv-python")
+            return False
+
         self.stop()
 
         try:
