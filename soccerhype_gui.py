@@ -38,51 +38,131 @@ class AthleteManager:
         else:
             self.error_handler = None
 
-    @error_handler("Discovering athletes", show_dialog=False)
     def discover_athletes(self) -> List[pathlib.Path]:
         """Find all athlete directories"""
         if ERROR_HANDLING_AVAILABLE:
-            ValidationHelper.validate_directory(ATHLETES, create_if_missing=True)
+            return self._discover_athletes_with_error_handling()
+        else:
+            return self._discover_athletes_basic()
 
-        if not ATHLETES.exists():
+    def _discover_athletes_with_error_handling(self) -> List[pathlib.Path]:
+        """Find all athlete directories with error handling"""
+        @error_handler("Discovering athletes", show_dialog=False)
+        def _discover():
+            if ERROR_HANDLING_AVAILABLE:
+                ValidationHelper.validate_directory(ATHLETES, create_if_missing=True)
+            if not ATHLETES.exists():
+                return []
+            return sorted([p for p in ATHLETES.iterdir() if p.is_dir()])
+        return _discover()
+
+    def _discover_athletes_basic(self) -> List[pathlib.Path]:
+        """Find all athlete directories without error handling"""
+        try:
+            if not ATHLETES.exists():
+                ATHLETES.mkdir(exist_ok=True)
+                return []
+            return sorted([p for p in ATHLETES.iterdir() if p.is_dir()])
+        except Exception:
             return []
-        return sorted([p for p in ATHLETES.iterdir() if p.is_dir()])
 
-    @error_handler("Checking athlete status", show_dialog=False)
     def get_athlete_status(self, athlete_dir: pathlib.Path) -> Dict[str, bool]:
         """Check completion status of workflow steps"""
         if ERROR_HANDLING_AVAILABLE:
-            ValidationHelper.validate_directory(athlete_dir)
+            return self._get_athlete_status_with_error_handling(athlete_dir)
+        else:
+            return self._get_athlete_status_basic(athlete_dir)
 
-        project_file = athlete_dir / "project.json"
-        final_video = athlete_dir / "output" / "final.mp4"
-        clips_in = athlete_dir / "clips_in"
+    def _get_athlete_status_with_error_handling(self, athlete_dir: pathlib.Path) -> Dict[str, bool]:
+        """Check athlete status with error handling"""
+        @error_handler("Checking athlete status", show_dialog=False)
+        def _get_status():
+            if ERROR_HANDLING_AVAILABLE:
+                ValidationHelper.validate_directory(athlete_dir)
 
-        has_clips = clips_in.exists() and any(clips_in.iterdir())
-        has_project = project_file.exists()
-        has_final = final_video.exists()
+            project_file = athlete_dir / "project.json"
+            final_video = athlete_dir / "output" / "final.mp4"
+            clips_in = athlete_dir / "clips_in"
 
-        return {
-            "has_clips": has_clips,
-            "has_project": has_project,
-            "has_final": has_final,
-            "needs_marking": has_clips and not has_project,
-            "needs_rendering": has_project and not has_final
-        }
+            has_clips = clips_in.exists() and any(clips_in.iterdir())
+            has_project = project_file.exists()
+            has_final = final_video.exists()
 
-    @error_handler("Creating athlete folder")
+            return {
+                "has_clips": has_clips,
+                "has_project": has_project,
+                "has_final": has_final,
+                "needs_marking": has_clips and not has_project,
+                "needs_rendering": has_project and not has_final
+            }
+        return _get_status()
+
+    def _get_athlete_status_basic(self, athlete_dir: pathlib.Path) -> Dict[str, bool]:
+        """Check athlete status without error handling"""
+        try:
+            project_file = athlete_dir / "project.json"
+            final_video = athlete_dir / "output" / "final.mp4"
+            clips_in = athlete_dir / "clips_in"
+
+            has_clips = clips_in.exists() and any(clips_in.iterdir())
+            has_project = project_file.exists()
+            has_final = final_video.exists()
+
+            return {
+                "has_clips": has_clips,
+                "has_project": has_project,
+                "has_final": has_final,
+                "needs_marking": has_clips and not has_project,
+                "needs_rendering": has_project and not has_final
+            }
+        except Exception:
+            return {
+                "has_clips": False,
+                "has_project": False,
+                "has_final": False,
+                "needs_marking": False,
+                "needs_rendering": False
+            }
+
     def create_athlete(self, name: str) -> pathlib.Path:
         """Create new athlete folder structure"""
+        if ERROR_HANDLING_AVAILABLE:
+            return self._create_athlete_with_error_handling(name)
+        else:
+            return self._create_athlete_basic(name)
+
+    def _create_athlete_with_error_handling(self, name: str) -> pathlib.Path:
+        """Create athlete with error handling"""
+        @error_handler("Creating athlete folder")
+        def _create():
+            if not name or not name.strip():
+                raise ValueError("Athlete name cannot be empty")
+
+            athlete_dir = ATHLETES / name.strip()
+            if athlete_dir.exists():
+                raise FileExistsError(f"Athlete '{name}' already exists")
+
+            if ERROR_HANDLING_AVAILABLE:
+                # Check disk space (estimate 1GB needed)
+                ValidationHelper.validate_disk_space(ATHLETES, 1024 * 1024 * 1024)
+
+            # Create directory structure
+            (athlete_dir / "clips_in").mkdir(parents=True, exist_ok=True)
+            (athlete_dir / "intro").mkdir(parents=True, exist_ok=True)
+            (athlete_dir / "work" / "proxies").mkdir(parents=True, exist_ok=True)
+            (athlete_dir / "output").mkdir(parents=True, exist_ok=True)
+
+            return athlete_dir
+        return _create()
+
+    def _create_athlete_basic(self, name: str) -> pathlib.Path:
+        """Create athlete without error handling"""
         if not name or not name.strip():
             raise ValueError("Athlete name cannot be empty")
 
         athlete_dir = ATHLETES / name.strip()
         if athlete_dir.exists():
             raise FileExistsError(f"Athlete '{name}' already exists")
-
-        if ERROR_HANDLING_AVAILABLE:
-            # Check disk space (estimate 1GB needed)
-            ValidationHelper.validate_disk_space(ATHLETES, 1024 * 1024 * 1024)
 
         # Create directory structure
         (athlete_dir / "clips_in").mkdir(parents=True, exist_ok=True)
@@ -252,9 +332,18 @@ class SoccerHypeGUI:
         tk.Button(action_frame, text="View Final Video", command=self.view_final,
                  font=("Segoe UI", 9)).pack(side='right')
 
-    @error_handler("Refreshing athletes list", show_dialog=False)
     def refresh_athletes(self):
         """Refresh the athletes list"""
+        try:
+            self._refresh_athletes_impl()
+        except Exception as e:
+            if ERROR_HANDLING_AVAILABLE and self.error_handler:
+                self.error_handler.handle_error(e, "Refreshing athletes list", show_dialog=False)
+            else:
+                print(f"Error refreshing athletes: {e}")
+
+    def _refresh_athletes_impl(self):
+        """Implementation of refresh athletes"""
         # Clear existing items
         for item in self.athlete_tree.get_children():
             self.athlete_tree.delete(item)
@@ -375,8 +464,17 @@ class SoccerHypeGUI:
             return
 
         try:
-            subprocess.run(["xdg-open", str(athlete_dir)], check=True)
-        except subprocess.CalledProcessError:
+            import platform
+            system = platform.system()
+            if system == "Linux":
+                subprocess.run(["xdg-open", str(athlete_dir)], check=True)
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", str(athlete_dir)], check=True)
+            elif system == "Windows":
+                subprocess.run(["explorer", str(athlete_dir)], check=True)
+            else:
+                messagebox.showinfo("Info", f"Please open folder manually: {athlete_dir}")
+        except (subprocess.CalledProcessError, FileNotFoundError):
             messagebox.showerror("Error", f"Could not open folder: {athlete_dir}")
 
     def mark_plays(self):
@@ -385,7 +483,7 @@ class SoccerHypeGUI:
         if not athlete_dir:
             return
 
-        status = AthleteManager.get_athlete_status(athlete_dir)
+        status = self.athlete_manager.get_athlete_status(athlete_dir)
         if not status["has_clips"]:
             messagebox.showwarning("No Clips", f"No clips found in {athlete_dir.name}/clips_in/\n\nAdd video clips first.")
             return
@@ -399,7 +497,7 @@ class SoccerHypeGUI:
         if not athlete_dir:
             return
 
-        status = AthleteManager.get_athlete_status(athlete_dir)
+        status = self.athlete_manager.get_athlete_status(athlete_dir)
         if not status["has_project"]:
             messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nMark plays first.")
             return
@@ -413,7 +511,7 @@ class SoccerHypeGUI:
         if not athlete_dir:
             return
 
-        status = AthleteManager.get_athlete_status(athlete_dir)
+        status = self.athlete_manager.get_athlete_status(athlete_dir)
         if not status["has_project"]:
             messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nMark plays first.")
             return
@@ -433,8 +531,17 @@ class SoccerHypeGUI:
             return
 
         try:
-            subprocess.run(["xdg-open", str(final_video)], check=True)
-        except subprocess.CalledProcessError:
+            import platform
+            system = platform.system()
+            if system == "Linux":
+                subprocess.run(["xdg-open", str(final_video)], check=True)
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", str(final_video)], check=True)
+            elif system == "Windows":
+                subprocess.run(["start", str(final_video)], shell=True, check=True)
+            else:
+                messagebox.showinfo("Info", f"Please open video manually: {final_video}")
+        except (subprocess.CalledProcessError, FileNotFoundError):
             messagebox.showerror("Error", f"Could not open video: {final_video}")
 
     def batch_operations(self):
@@ -557,10 +664,11 @@ class BatchOperationsDialog:
     def refresh_athletes(self):
         """Refresh athlete list"""
         self.athlete_listbox.delete(0, tk.END)
-        self.athletes = AthleteManager.discover_athletes()
+        athlete_manager = AthleteManager()
+        self.athletes = athlete_manager.discover_athletes()
 
         for athlete_dir in self.athletes:
-            status = AthleteManager.get_athlete_status(athlete_dir)
+            status = athlete_manager.get_athlete_status(athlete_dir)
             status_text = "✓ Complete" if status["has_final"] else ("⚡ Ready" if status["has_project"] else "⚠ Needs work")
             self.athlete_listbox.insert(tk.END, f"{athlete_dir.name} - {status_text}")
 
@@ -575,8 +683,9 @@ class BatchOperationsDialog:
     def select_ready(self):
         """Select athletes ready to render"""
         self.select_none()
+        athlete_manager = AthleteManager()
         for i, athlete_dir in enumerate(self.athletes):
-            status = AthleteManager.get_athlete_status(athlete_dir)
+            status = athlete_manager.get_athlete_status(athlete_dir)
             if status["has_project"]:
                 self.athlete_listbox.selection_set(i)
 
