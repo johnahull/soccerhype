@@ -8,7 +8,15 @@ This is **soccerhype** - a Python + FFmpeg tool for creating athlete highlight v
 
 ## Setup and Installation
 
-**Environment Setup:**
+**Enhanced Setup (Recommended):**
+```bash
+# Run the enhanced setup script for GUI improvements
+./setup_enhanced.sh
+
+# This includes all dependencies plus enhanced features
+```
+
+**Standard Setup:**
 ```bash
 # Run the automated setup script
 ./setup.sh
@@ -26,6 +34,25 @@ pip install -r requirements.txt
 - Ubuntu 24.04+ (should work on other Linux distros)
 
 ## Core Workflow Commands
+
+**Enhanced GUI Workflow (Recommended):**
+```bash
+# Launch unified GUI application
+python soccerhype_gui.py
+# Or use launcher: ./launch_soccerhype.sh
+```
+
+**Enhanced Command Line Tools:**
+```bash
+# Enhanced marking with smart defaults and templates
+python mark_play_enhanced.py
+python mark_play_enhanced.py --template "soccer_player_template"
+
+# Enhanced clip reordering with thumbnail preview
+python reorder_clips_enhanced.py
+```
+
+**Standard Command Line Workflow:**
 
 **1. Create athlete folder structure:**
 ```bash
@@ -137,7 +164,9 @@ Contains athlete metadata and clip data with standardized coordinates:
 
 ## Testing and Development
 
-**No formal test framework** is configured - this is a practical utility tool focused on video processing workflows rather than extensive unit testing.
+**Testing:**
+- pytest is included in requirements.txt for future test development
+- Currently no formal test suite - this is a practical utility tool focused on video processing workflows
 
 **Development workflow:**
 - Direct execution of Python scripts without build steps
