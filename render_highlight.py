@@ -255,97 +255,182 @@ def make_slate(player: dict, out_path: pathlib.Path, work: pathlib.Path, intro_m
     make_slate_with_image(player, out_path, work, intro_media)
 
 def make_slate_with_image(player: dict, out_path: pathlib.Path, work: pathlib.Path, intro_image: pathlib.Path | None = None):
-    """Create slate with optional player picture embedded."""
+    """Create slate with player profile card design matching phia-profile.jpg style."""
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), (0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    title = (player.get("title") or "")
-    name  = (player.get("name") or "Player Name")
-    pos   = (player.get("position") or "")
-    grad  = str(player.get("grad_year") or "")
-    club  = (player.get("club_team") or "")
-    hs    = (player.get("high_school") or "")
-    hw    = (player.get("height_weight") or "")
-    gpa   = (player.get("gpa") or "")
+    # Player data
+    name = (player.get("name") or "Player Name")
+    pos = (player.get("position") or "")
+    grad = str(player.get("grad_year") or "")
+    club = (player.get("club_team") or "")
+    hs = (player.get("high_school") or "")
+    hw = (player.get("height_weight") or "")
+    gpa = (player.get("gpa") or "")
     email = (player.get("email") or "")
     phone = (player.get("phone") or "")
 
-    lines = []
-    if title:
-        lines.append((title, 84))
-    lines.append((name, 72))
-    pos_line = pos + (f"  •  Class of {grad}" if grad else "")
-    if pos_line.strip():
-        lines.append((pos_line.strip(), 44))
-    if club:  lines.append((club,          40))
-    if hs:    lines.append((hs,            40))
-    if hw:    lines.append((hw,            40))
-    if gpa:   lines.append((f"GPA: {gpa}", 40))
-    if email: lines.append((email,         36))
-    if phone: lines.append((phone,         36))
+    # Draw corner brackets
+    bracket_color = (128, 128, 128)  # Gray color for brackets
+    bracket_size = 60
+    bracket_thickness = 4
+    margin = 80
+    
+    # Top-left bracket
+    draw.line([(margin, margin), (margin + bracket_size, margin)], fill=bracket_color, width=bracket_thickness)
+    draw.line([(margin, margin), (margin, margin + bracket_size)], fill=bracket_color, width=bracket_thickness)
+    
+    # Top-right bracket
+    draw.line([(W - margin - bracket_size, margin), (W - margin, margin)], fill=bracket_color, width=bracket_thickness)
+    draw.line([(W - margin, margin), (W - margin, margin + bracket_size)], fill=bracket_color, width=bracket_thickness)
+    
+    # Bottom-left bracket
+    draw.line([(margin, H - margin - bracket_size), (margin, H - margin)], fill=bracket_color, width=bracket_thickness)
+    draw.line([(margin, H - margin), (margin + bracket_size, H - margin)], fill=bracket_color, width=bracket_thickness)
+    
+    # Bottom-right bracket
+    draw.line([(W - margin, H - margin - bracket_size), (W - margin, H - margin)], fill=bracket_color, width=bracket_thickness)
+    draw.line([(W - margin - bracket_size, H - margin), (W - margin, H - margin)], fill=bracket_color, width=bracket_thickness)
 
-    # Layout calculation considering picture placement
+    # Draw "PLAYER PROFILE" header - positioned over the profile text area (75%)
+    header_font = _load_font(48)
+    header_text = "PLAYER PROFILE"
+    header_bbox = draw.textbbox((0, 0), header_text, font=header_font)
+    header_w = header_bbox[2] - header_bbox[0]
+    header_x = int(W * 0.66 - header_w // 2)  # Center at 66% of slate width
+    header_y = 120
+    draw.text((header_x, header_y), header_text, fill=(255, 255, 255), font=header_font)
+
+    # Colors and fonts
+    label_color = (255, 215, 0)  # Gold/yellow color
+    data_color = (255, 255, 255)  # White for data
+    label_font = _load_font(24)
+    data_font = _load_font(36)
+    name_font = _load_font(52)
+    
+    # Build text elements for stats (excluding name which gets special positioning)
+    stats_elements = []
+    
+    # Other elements
+    if pos:
+        stats_elements.append(("POSITION", pos.upper(), label_font, label_color, False))
+    if hw:
+        stats_elements.append(("HEIGHT | WEIGHT", hw, label_font, label_color, False))
+    if grad:
+        stats_elements.append(("GRADUATION YEAR", f"CLASS OF {grad}", label_font, label_color, False))
+    if club:
+        stats_elements.append(("CLUB", club.upper(), label_font, label_color, False))
+    if hs:
+        stats_elements.append(("HIGH SCHOOL", hs.upper(), label_font, label_color, False))
+    if gpa:
+        stats_elements.append(("GPA", str(gpa), label_font, label_color, False))
+    if email:
+        stats_elements.append(("EMAIL", email.lower(), label_font, label_color, False))
+    if phone:
+        stats_elements.append(("PHONE", phone, label_font, label_color, False))
+    
     if intro_image:
-        # Picture on left, text on right layout
-        picture_area_w = W // 2  # Left half for picture
-        text_start_x = picture_area_w + 50  # Add some padding
-        text_area_w = W - text_start_x - 50  # Right half minus padding
+        # Layout with picture: centered at 25% of slate width
+        pic_area_w = 450
+        pic_area_h = 600
+        pic_area_x = int(W * 0.33 - pic_area_w // 2)  # Center at 33% of slate width
+        pic_area_y = 220
         
-        # Load and resize picture
+        # Load and display picture
         try:
             player_pic = Image.open(intro_image).convert("RGBA")
-            # Calculate picture size (maintain aspect ratio, fit in left half)
-            pic_max_w = picture_area_w - 100  # Leave padding
-            pic_max_h = H - 200  # Leave top/bottom padding
             
+            # Resize picture to fit in the designated area with rounded corners
             pic_w, pic_h = player_pic.size
-            scale = min(pic_max_w / pic_w, pic_max_h / pic_h, 1.0)
+            scale = min(pic_area_w / pic_w, pic_area_h / pic_h, 1.0)
             new_w, new_h = int(pic_w * scale), int(pic_h * scale)
             player_pic = player_pic.resize((new_w, new_h), Image.LANCZOS)
             
-            # Center picture in left area
-            pic_x = (picture_area_w - new_w) // 2
-            pic_y = (H - new_h) // 2
+            # Create rounded rectangle mask
+            mask = Image.new("L", (new_w, new_h), 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.rounded_rectangle([(0, 0), (new_w, new_h)], radius=20, fill=255)
             
-            # Create a background layer for the image
-            pic_layer = Image.new("RGBA", img.size, (0,0,0,0))
-            pic_layer.paste(player_pic, (pic_x, pic_y), player_pic)
-            img = img.convert("RGBA")
-            img = Image.alpha_composite(img, pic_layer).convert("RGB")
-            # Recreate draw object after compositing
+            # Apply mask to create rounded corners
+            rounded_pic = Image.new("RGBA", (new_w, new_h), (0, 0, 0, 0))
+            rounded_pic.paste(player_pic, (0, 0))
+            rounded_pic.putalpha(mask)
+            
+            # Center picture in left half
+            pic_x = pic_area_x + (pic_area_w - new_w) // 2
+            pic_y = pic_area_y + (pic_area_h - new_h) // 2
+            
+            # Paste picture onto main image
+            img_rgba = img.convert("RGBA")
+            img_rgba.paste(rounded_pic, (pic_x, pic_y), rounded_pic)
+            img = img_rgba.convert("RGB")
             draw = ImageDraw.Draw(img)
             
         except Exception as e:
             print(f"Warning: Could not load picture {intro_image}: {e}")
-            text_start_x = 0
-            text_area_w = W
-    else:
-        # No picture - center text normally
-        text_start_x = 0
-        text_area_w = W
-
-    # Calculate text layout
-    spacing = 18
-    fonts, widths, heights = [], [], []
-    for text, sz in lines:
-        f = _load_font(sz); fonts.append(f)
-        l,t,r,b = draw.textbbox((0,0), text, font=f)
-        widths.append(r-l); heights.append(b-t)
+            intro_image = None  # Fall back to no-picture layout
     
-    total_h = sum(heights) + spacing * (len(lines)-1) if lines else 0
-    y = (H - total_h) // 2
-
-    # Draw text
-    for (text, _), f, w, h in zip(lines, fonts, widths, heights):
-        if intro_image:
-            # Center text in right half
-            x = text_start_x + (text_area_w - w) // 2
-        else:
-            # Center text across full width
-            x = (W - w) // 2
-        draw.text((x, y), text, fill=(255,255,255), font=f)
-        y += h + spacing
+    if intro_image:
+        # Player name centered at 25% of slate width (below picture)
+        name_bbox = draw.textbbox((0, 0), name, font=name_font)
+        name_w = name_bbox[2] - name_bbox[0]
+        name_x = int(W * 0.33 - name_w // 2)  # Center at 33% of slate width
+        name_y = pic_area_y + pic_area_h + 30
+        draw.text((name_x, name_y), name, fill=data_color, font=name_font)
+        
+        # Stats centered at 75% of slate width
+        text_center_x = int(W * 0.66)  # Center at 66% of slate width
+        
+        # Calculate total height needed for stats
+        line_spacing = 85
+        total_height = len(stats_elements) * line_spacing - (line_spacing - 50) if stats_elements else 0
+        start_y = (H - total_height) // 2
+        
+        current_y = start_y
+        for label, text, font, color, is_name in stats_elements:
+            # Label and data on separate lines, centered
+            bbox = draw.textbbox((0, 0), label, font=label_font)
+            label_w = bbox[2] - bbox[0]
+            label_x = text_center_x - label_w // 2
+            draw.text((label_x, current_y), label, fill=label_color, font=label_font)
+            
+            bbox = draw.textbbox((0, 0), text, font=data_font)
+            data_w = bbox[2] - bbox[0]
+            data_x = text_center_x - data_w // 2
+            draw.text((data_x, current_y + 35), text, fill=data_color, font=data_font)
+            current_y += line_spacing
+    else:
+        # No picture: name centered below "PLAYER PROFILE" header, then stats below
+        
+        # Player name centered below header
+        name_bbox = draw.textbbox((0, 0), name, font=name_font)
+        name_w = name_bbox[2] - name_bbox[0]
+        name_x = (W - name_w) // 2
+        name_y = header_y + 80  # Below the header
+        draw.text((name_x, name_y), name, fill=data_color, font=name_font)
+        
+        # Stats centered below name
+        text_center_x = W // 2
+        
+        # Calculate total height needed for stats
+        line_spacing = 95
+        total_height = len(stats_elements) * line_spacing - (line_spacing - 60) if stats_elements else 0
+        start_y = name_y + 100  # Below name with some spacing
+        
+        current_y = start_y
+        for label, text, font, color, is_name in stats_elements:
+            # Label and data on separate lines, centered
+            bbox = draw.textbbox((0, 0), label, font=label_font)
+            label_w = bbox[2] - bbox[0]
+            label_x = text_center_x - label_w // 2
+            draw.text((label_x, current_y), label, fill=label_color, font=label_font)
+            
+            bbox = draw.textbbox((0, 0), text, font=data_font)
+            data_w = bbox[2] - bbox[0]
+            data_x = text_center_x - data_w // 2
+            draw.text((data_x, current_y + 35), text, fill=data_color, font=data_font)
+            current_y += line_spacing
 
     slate_png = work / "slate.png"
     img.save(slate_png)
@@ -380,7 +465,6 @@ def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Pa
     ])
     
     # Create text overlay
-    title = (player.get("title") or "")
     name = (player.get("name") or "Player Name")
     pos = (player.get("position") or "")
     grad = str(player.get("grad_year") or "")
@@ -388,18 +472,9 @@ def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Pa
     # Build filter for text overlay
     text_filters = []
     
-    # Title (if provided)
-    if title:
-        text_filters.append(f"drawtext=text='{title}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=72:fontcolor=white:x=(w-text_w)/2:y=h*0.65:box=1:boxcolor=black@0.7:boxborderw=10")
-        # Adjust name position if title exists
-        name_y = "h*0.75"
-        pos_y = "h*0.82"
-    else:
-        # Original positioning when no title
-        name_y = "h*0.75"
-        pos_y = "h*0.82"
-    
     # Main name with background
+    name_y = "h*0.75"
+    pos_y = "h*0.82"
     text_filters.append(f"drawtext=text='{name}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=64:fontcolor=white:x=(w-text_w)/2:y={name_y}:box=1:boxcolor=black@0.7:boxborderw=10")
     
     # Position and grad year
@@ -543,7 +618,7 @@ def main():
     if include_intro:
         # Check if intro media has already been selected (and not reset)
         if "intro_media" not in data or args.reset_intro:
-            print(f"\n🎬 Setting up intro slate for {base.name}")
+            print(f"\n🎬 Resetting intro media selection for {base.name}")
             
             # Check for intro media files
             intro_dir = base / "intro"
@@ -567,7 +642,7 @@ def main():
         else:
             intro_media_path = data.get("intro_media")
             if intro_media_path:
-                print(f"Using previously selected intro media: {pathlib.Path(intro_media_path).name}")
+                print(f"Using intro media: {pathlib.Path(intro_media_path).name}")
             else:
                 print("Using text-only slate")
 
