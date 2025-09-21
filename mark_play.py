@@ -349,6 +349,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
     ap.add_argument("--dir", type=str, help="Full path to athlete folder")
+
+    # Player information arguments (for GUI mode)
+    ap.add_argument("--player-name", type=str, help="Player name")
+    ap.add_argument("--title", type=str, help="Title (optional)")
+    ap.add_argument("--position", type=str, help="Playing position")
+    ap.add_argument("--grad-year", type=str, help="Graduation year")
+    ap.add_argument("--club-team", type=str, help="Club team")
+    ap.add_argument("--high-school", type=str, help="High school")
+    ap.add_argument("--height-weight", type=str, help="Height and weight")
+    ap.add_argument("--gpa", type=str, help="GPA")
+    ap.add_argument("--email", type=str, help="Email address")
+    ap.add_argument("--phone", type=str, help="Phone number")
+    ap.add_argument("--include-intro", action="store_true", help="Include intro screen")
+    ap.add_argument("--overwrite", action="store_true", help="Overwrite existing project without asking")
+
     args = ap.parse_args()
 
     # Resolve athlete base directory
@@ -376,26 +391,53 @@ def main():
 
     project_path = base / "project.json"
 
-    # If project exists, ask before overwriting
-    if project_path.exists():
-        ans = input(f"{project_path} exists. Overwrite? [y/N]: ").strip().lower()
-        if ans != "y":
-            print("Aborted.")
-            sys.exit(0)
+    # Check if using GUI mode (any player argument provided)
+    gui_mode = any([
+        args.player_name, args.position, args.grad_year, args.club_team,
+        args.high_school, args.height_weight, args.gpa, args.email, args.phone,
+        args.include_intro, args.overwrite
+    ])
 
-    include_intro = input("Include intro screen? [Y/n]: ").strip().lower() != "n"
-    player = {}
-    if include_intro:
-        print("Enter player info (leave blank to omit a line):")
-        player["name"] = input("Name: ").strip()
-        player["position"] = input("Position: ").strip()
-        player["grad_year"] = input("Grad Year: ").strip()
-        player["club_team"] = input("Club Team: ").strip()
-        player["high_school"] = input("High School: ").strip()
-        player["height_weight"] = input("Height/Weight: ").strip()
-        player["gpa"] = input("GPA: ").strip()
-        player["email"] = input("Email: ").strip()
-        player["phone"] = input("Phone: ").strip()
+    # If project exists, ask before overwriting (unless in GUI mode with overwrite flag)
+    if project_path.exists():
+        if gui_mode and args.overwrite:
+            print(f"Overwriting existing project: {project_path}")
+        else:
+            ans = input(f"{project_path} exists. Overwrite? [y/N]: ").strip().lower()
+            if ans != "y":
+                print("Aborted.")
+                sys.exit(0)
+
+    # Handle intro and player info
+    if gui_mode:
+        include_intro = args.include_intro
+        player = {}
+        intro_media_path = None  # For GUI mode, skip intro media selection for now
+        if include_intro:
+            player["name"] = args.player_name or ""
+            player["title"] = args.title or ""
+            player["position"] = args.position or ""
+            player["grad_year"] = args.grad_year or ""
+            player["club_team"] = args.club_team or ""
+            player["high_school"] = args.high_school or ""
+            player["height_weight"] = args.height_weight or ""
+            player["gpa"] = args.gpa or ""
+            player["email"] = args.email or ""
+            player["phone"] = args.phone or ""
+    else:
+        include_intro = input("Include intro screen? [Y/n]: ").strip().lower() != "n"
+        player = {}
+        if include_intro:
+            print("Enter player info (leave blank to omit a line):")
+            player["name"] = input("Name: ").strip()
+            player["position"] = input("Position: ").strip()
+            player["grad_year"] = input("Grad Year: ").strip()
+            player["club_team"] = input("Club Team: ").strip()
+            player["high_school"] = input("High School: ").strip()
+            player["height_weight"] = input("Height/Weight: ").strip()
+            player["gpa"] = input("GPA: ").strip()
+            player["email"] = input("Email: ").strip()
+            player["phone"] = input("Phone: ").strip()
         
         # Handle intro media selection
         intro_media_path = None
