@@ -488,7 +488,47 @@ class SoccerHypeGUI:
             messagebox.showwarning("No Clips", f"No clips found in {athlete_dir.name}/clips_in/\n\nAdd video clips first.")
             return
 
-        self.run_script_async("mark_play.py", ["--dir", str(athlete_dir)],
+        # Check if project already exists
+        project_exists = (athlete_dir / "project.json").exists()
+
+        # Show player information dialog
+        dialog = PlayerInfoDialog(self.root, athlete_dir.name, project_exists)
+
+        if dialog.result is None:
+            # User cancelled
+            return
+
+        player_data = dialog.result
+
+        # Build command line arguments
+        args = ["--dir", str(athlete_dir), "--overwrite"]
+
+        if player_data["include_intro"]:
+            args.append("--include-intro")
+
+            # Add player information arguments
+            if player_data["name"]:
+                args.extend(["--player-name", player_data["name"]])
+            if player_data["title"]:
+                args.extend(["--title", player_data["title"]])
+            if player_data["position"]:
+                args.extend(["--position", player_data["position"]])
+            if player_data["grad_year"]:
+                args.extend(["--grad-year", player_data["grad_year"]])
+            if player_data["club_team"]:
+                args.extend(["--club-team", player_data["club_team"]])
+            if player_data["high_school"]:
+                args.extend(["--high-school", player_data["high_school"]])
+            if player_data["height_weight"]:
+                args.extend(["--height-weight", player_data["height_weight"]])
+            if player_data["gpa"]:
+                args.extend(["--gpa", player_data["gpa"]])
+            if player_data["email"]:
+                args.extend(["--email", player_data["email"]])
+            if player_data["phone"]:
+                args.extend(["--phone", player_data["phone"]])
+
+        self.run_script_async("mark_play.py", args,
                              "Marking Plays", f"Launching play marking for {athlete_dir.name}")
 
     def reorder_clips(self):
@@ -595,6 +635,150 @@ class SoccerHypeGUI:
     def run(self):
         """Start the GUI application"""
         self.root.mainloop()
+
+class PlayerInfoDialog:
+    """Dialog for collecting player information before marking plays"""
+
+    def __init__(self, parent, athlete_name, project_exists=False):
+        self.result = None
+        self.athlete_name = athlete_name
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(f"Player Information - {athlete_name}")
+        self.dialog.geometry("500x650")
+        self.dialog.resizable(False, False)
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        # Center on parent
+        self.dialog.geometry(f"+{parent.winfo_rootx() + 150}+{parent.winfo_rooty() + 50}")
+
+        # Variables for form fields
+        self.name_var = tk.StringVar(value=athlete_name)
+        self.title_var = tk.StringVar()
+        self.position_var = tk.StringVar()
+        self.grad_year_var = tk.StringVar()
+        self.club_team_var = tk.StringVar()
+        self.high_school_var = tk.StringVar()
+        self.height_weight_var = tk.StringVar()
+        self.gpa_var = tk.StringVar()
+        self.email_var = tk.StringVar()
+        self.phone_var = tk.StringVar()
+        self.include_intro_var = tk.BooleanVar(value=True)
+        self.overwrite_var = tk.BooleanVar(value=project_exists)
+
+        self.setup_ui(project_exists)
+
+        # Wait for dialog to complete
+        self.dialog.wait_window()
+
+    def setup_ui(self, project_exists):
+        """Setup the player information form"""
+        main_frame = tk.Frame(self.dialog)
+        main_frame.pack(fill='both', expand=True, padx=20, pady=10)
+
+        # Title
+        tk.Label(main_frame, text="Player Information",
+                font=("Segoe UI", 16, "bold")).pack(pady=(0, 15))
+
+        if project_exists:
+            warning_frame = tk.Frame(main_frame, bg="#fff3cd", relief="solid", bd=1)
+            warning_frame.pack(fill='x', pady=(0, 10))
+            tk.Label(warning_frame, text="⚠ Project file exists and will be overwritten",
+                    font=("Segoe UI", 9), bg="#fff3cd", fg="#856404").pack(pady=5)
+
+        # Create scrollable frame for form fields
+        canvas = tk.Canvas(main_frame, height=450)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Form fields
+        fields = [
+            ("Player Name:", self.name_var, True),
+            ("Title (optional):", self.title_var, False),
+            ("Position:", self.position_var, False),
+            ("Graduation Year:", self.grad_year_var, False),
+            ("Club Team:", self.club_team_var, False),
+            ("High School:", self.high_school_var, False),
+            ("Height/Weight:", self.height_weight_var, False),
+            ("GPA:", self.gpa_var, False),
+            ("Email:", self.email_var, False),
+            ("Phone:", self.phone_var, False),
+        ]
+
+        for label_text, var, required in fields:
+            field_frame = tk.Frame(scrollable_frame)
+            field_frame.pack(fill='x', pady=8)
+
+            label = tk.Label(field_frame, text=label_text, font=("Segoe UI", 10))
+            if required:
+                label.config(font=("Segoe UI", 10, "bold"))
+            label.pack(anchor='w')
+
+            entry = tk.Entry(field_frame, textvariable=var, font=("Segoe UI", 10), width=50)
+            entry.pack(fill='x', pady=2)
+
+            if required:
+                entry.config(highlightbackground="#007ACC", highlightthickness=1)
+
+        # Checkboxes
+        checkbox_frame = tk.Frame(scrollable_frame)
+        checkbox_frame.pack(fill='x', pady=15)
+
+        tk.Checkbutton(checkbox_frame, text="Include intro screen with player slate",
+                      variable=self.include_intro_var, font=("Segoe UI", 10)).pack(anchor='w')
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Buttons
+        button_frame = tk.Frame(main_frame)
+        button_frame.pack(fill='x', pady=(15, 0))
+
+        tk.Button(button_frame, text="Cancel", command=self.cancel,
+                 font=("Segoe UI", 10), width=12).pack(side='right', padx=(5, 0))
+        tk.Button(button_frame, text="Continue to Mark Plays", command=self.accept,
+                 bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold"), width=20).pack(side='right')
+
+        # Focus on name field
+        if hasattr(self, '_name_entry'):
+            self._name_entry.focus()
+
+    def accept(self):
+        """Accept the form and return the data"""
+        # Validate required fields
+        if not self.name_var.get().strip():
+            messagebox.showerror("Validation Error", "Player name is required.")
+            return
+
+        self.result = {
+            "name": self.name_var.get().strip(),
+            "title": self.title_var.get().strip(),
+            "position": self.position_var.get().strip(),
+            "grad_year": self.grad_year_var.get().strip(),
+            "club_team": self.club_team_var.get().strip(),
+            "high_school": self.high_school_var.get().strip(),
+            "height_weight": self.height_weight_var.get().strip(),
+            "gpa": self.gpa_var.get().strip(),
+            "email": self.email_var.get().strip(),
+            "phone": self.phone_var.get().strip(),
+            "include_intro": self.include_intro_var.get(),
+            "overwrite": self.overwrite_var.get()
+        }
+        self.dialog.destroy()
+
+    def cancel(self):
+        """Cancel the dialog"""
+        self.result = None
+        self.dialog.destroy()
 
 class BatchOperationsDialog:
     """Dialog for batch operations on multiple athletes"""
