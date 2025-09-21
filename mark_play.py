@@ -135,6 +135,63 @@ def draw_hud(frame, t, fps, frame_idx, total_frames, rate, paused,
     cv2.addWeighted(overlay, 1.0, frame, 0.0, 0, frame)
     return frame
 
+def find_intro_files(intro_dir: pathlib.Path) -> dict:
+    """Find image and video files in the intro directory."""
+    if not intro_dir.exists():
+        return {"images": [], "videos": []}
+    
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
+    video_exts = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm"}
+    
+    images = []
+    videos = []
+    
+    for file in intro_dir.iterdir():
+        if file.is_file():
+            ext = file.suffix.lower()
+            if ext in image_exts:
+                images.append(file)
+            elif ext in video_exts:
+                videos.append(file)
+    
+    return {"images": sorted(images), "videos": sorted(videos)}
+
+def choose_intro_media(intro_files: dict) -> pathlib.Path | None:
+    """Interactively choose an intro media file from available options."""
+    images = intro_files["images"]
+    videos = intro_files["videos"]
+    
+    if not images and not videos:
+        return None
+    
+    print("\nAvailable intro media files:")
+    options = []
+    
+    if images:
+        print("  Pictures:")
+        for i, img in enumerate(images, 1):
+            print(f"    {i}. {img.name}")
+            options.append(img)
+    
+    if videos:
+        print("  Videos:")
+        start_num = len(images) + 1
+        for i, vid in enumerate(videos, start_num):
+            print(f"    {i}. {vid.name}")
+            options.append(vid)
+    
+    print("  n. No intro media (text-only slate)")
+    
+    while True:
+        choice = input("Choose intro media (number or 'n'): ").strip().lower()
+        if choice == 'n':
+            return None
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(options):
+                return options[idx-1]
+        print("Invalid choice. Try again.")
+
 def autosave(project_path: pathlib.Path, project: Dict[str, Any]):
     project_path.write_text(json.dumps(project, indent=2))
     print(f"  ↳ autosaved {project_path}")
@@ -309,6 +366,9 @@ def main():
         sys.exit(1)
 
     paths = validate_athlete_dir(base)
+    # Ensure intro directory exists
+    intro_dir = base / "intro"
+    intro_dir.mkdir(exist_ok=True)
     clips = list_clips(paths["clips_in"])
     if not clips:
         print(f"No clips found in {paths['clips_in']}")
@@ -328,7 +388,6 @@ def main():
     if include_intro:
         print("Enter player info (leave blank to omit a line):")
         player["name"] = input("Name: ").strip()
-        player["title"] = input("Title (e.g., Fall 2025 Highlight Video): ").strip()
         player["position"] = input("Position: ").strip()
         player["grad_year"] = input("Grad Year: ").strip()
         player["club_team"] = input("Club Team: ").strip()
@@ -337,8 +396,22 @@ def main():
         player["gpa"] = input("GPA: ").strip()
         player["email"] = input("Email: ").strip()
         player["phone"] = input("Phone: ").strip()
+        
+        # Handle intro media selection
+        intro_media_path = None
+        intro_dir = base / "intro"
+        intro_files = find_intro_files(intro_dir)
+        if intro_files["images"] or intro_files["videos"]:
+            intro_media = choose_intro_media(intro_files)
+            if intro_media:
+                intro_media_path = str(intro_media.relative_to(base))
+                print(f"Selected intro media: {intro_media.name}")
+            else:
+                print("Using text-only slate")
+        else:
+            print("No intro media files found - using text-only slate")
 
-    project = {"player": player, "include_intro": include_intro, "clips": []}
+    project = {"player": player, "include_intro": include_intro, "intro_media": intro_media_path, "clips": []}
 
     for idx, src in enumerate(clips, 1):
         proxy = paths["prox"] / f"clip{idx:02d}_std.mp4"
