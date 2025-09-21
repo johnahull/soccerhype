@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-# reorder_clips.py — GUI to reorder clips in project.json with playback preview
+# reorder_clips.py — GUI to reorder clips in project.json with system player preview
 #
 # Usage:
 #   python reorder_clips.py
 #   python reorder_clips.py --athlete "Jane Smith"
 #   python reorder_clips.py --dir "athletes/Jane Smith"
+#
+# Note: Preview functionality uses system default video player for reliability.
+# Trade-offs vs embedded player: No scrubbing/looping, but better codec support.
 #
 # Requirements: tkinter (python3-tk)
 
@@ -13,6 +16,7 @@ import json
 import os
 import pathlib
 import platform
+import shutil
 import subprocess
 import sys
 import tkinter as tk
@@ -91,17 +95,42 @@ class PreviewArea(tk.Frame):
         super().__init__(master)
         self.configure(bg=bg, bd=1, relief="sunken")
 
-        # Simple message area
+        # Message and status area
         self.label = tk.Label(self,
-                             text="Click 'Preview' button to open selected clip\nin your system's default video player",
+                             text="Select a clip and click 'Preview' to open in system player",
                              bg=bg,
                              fg="#666666",
                              font=("Arial", 12),
-                             justify="center")
+                             justify="center",
+                             wraplength=400)
         self.label.pack(expand=True, fill="both", padx=20, pady=20)
 
         # Make the area expandable
         self.pack_propagate(False)
+
+    def show_clip_info(self, clip_name: str, file_path: pathlib.Path):
+        """Display information about the selected clip"""
+        try:
+            # Get file info
+            file_size = file_path.stat().st_size if file_path.exists() else 0
+            size_mb = file_size / (1024 * 1024)
+
+            info_text = f"Selected: {clip_name}\n\n"
+            info_text += f"File: {file_path.name}\n"
+            info_text += f"Size: {size_mb:.1f} MB\n\n"
+            info_text += "Click 'Preview' to open in system player"
+
+            self.label.configure(text=info_text)
+        except Exception:
+            self.label.configure(text=f"Selected: {clip_name}\n\nClick 'Preview' to open in system player")
+
+    def show_status(self, message: str):
+        """Show a status message"""
+        self.label.configure(text=message)
+
+    def reset(self):
+        """Reset to default message"""
+        self.label.configure(text="Select a clip and click 'Preview' to open in system player")
 
 # ---------- drag-and-drop listbox ----------
 class DragListbox(tk.Listbox):
@@ -173,6 +202,8 @@ class ReorderGUI(tk.Tk):
 
         # Double-click list item to preview
         self.listbox.bind("<Double-Button-1>", lambda e: self.preview_selected())
+        # Show clip info when selection changes
+        self.listbox.bind("<<ListboxSelect>>", self.on_selection_change)
 
         # Shortcuts
         self.bind("<Control-Up>", lambda e: self.move_up())
@@ -181,6 +212,23 @@ class ReorderGUI(tk.Tk):
     def current_selection(self) -> Optional[int]:
         sel = self.listbox.curselection()
         return sel[0] if sel else None
+
+    def on_selection_change(self, event=None):
+        """Handle listbox selection change to show clip info"""
+        i = self.current_selection()
+        if i is None:
+            self.preview_area.reset()
+            return
+
+        try:
+            clip_name = self.listbox.get(i)
+            path = resolve_video_path(self.base, self.clips[i])
+            if path and path.exists():
+                self.preview_area.show_clip_info(clip_name, path)
+            else:
+                self.preview_area.show_status(f"Selected: {clip_name}\n\n⚠️ File not found")
+        except Exception:
+            self.preview_area.reset()
 
     def move_up(self):
         i = self.current_selection()
@@ -212,24 +260,94 @@ class ReorderGUI(tk.Tk):
             self.listbox.insert(tk.END, name)
 
     def preview_selected(self):
+        """Open selected clip in system default video player with comprehensive error handling"""
         i = self.current_selection()
-        if i is None: return
-        path = resolve_video_path(self.base, self.clips[i])
-        if not path:
-            messagebox.showwarning("Preview", "Could not locate file or proxy for this clip.")
+        if i is None:
+            messagebox.showwarning("No Selection", "Please select a clip to preview.")
             return
 
-        # Open video in system default player
+        # Get and validate the file path
+        path = resolve_video_path(self.base, self.clips[i])
+        if not path:
+            messagebox.showwarning("File Not Found",
+                                 "Could not locate file or proxy for this clip.\n\n"
+                                 "Possible solutions:\n"
+                                 "• Check if the source file exists in clips_in/\n"
+                                 "• Run render_highlight.py to generate proxies")
+            return
+
+        if not path.exists():
+            messagebox.showerror("File Missing",
+                               f"File does not exist:\n{path}\n\n"
+                               "The file may have been moved or deleted.")
+            return
+
+        # Show status while launching
+        clip_name = self.listbox.get(i)
+        self.preview_area.show_status(f"Opening {clip_name}...")
+        self.update()  # Force UI update
+
+        # Launch system player with proper error handling and security
         try:
             system = platform.system()
+            success = False
+
             if system == "Darwin":  # macOS
-                subprocess.run(["open", str(path)], check=True)
+                if shutil.which("open"):
+                    subprocess.run(["open", str(path)], check=True, shell=False, timeout=10)
+                    success = True
+                else:
+                    raise FileNotFoundError("'open' command not available")
+
             elif system == "Windows":
+                # os.startfile is Windows-specific and secure
                 os.startfile(str(path))
+                success = True
+
             else:  # Linux and others
-                subprocess.run(["xdg-open", str(path)], check=True)
+                if shutil.which("xdg-open"):
+                    subprocess.run(["xdg-open", str(path)], check=True, shell=False, timeout=10)
+                    success = True
+                else:
+                    raise FileNotFoundError("'xdg-open' command not available")
+
+            if success:
+                # Show success status briefly, then restore clip info
+                self.preview_area.show_status(f"✓ Opened {clip_name} in system player")
+                self.after(2000, lambda: self.preview_area.show_clip_info(clip_name, path))
+
+                # Restore focus to our window after brief delay
+                self.after(1000, lambda: (self.lift(), self.focus_force()))
+
+        except subprocess.TimeoutExpired:
+            messagebox.showerror("Preview Timeout",
+                               "System player took too long to start.\n\n"
+                               "The file may be corrupted or the system is busy.")
+            self.preview_area.show_clip_info(clip_name, path)
+
+        except subprocess.CalledProcessError as e:
+            messagebox.showerror("System Player Error",
+                               f"System player failed to open the file.\n\n"
+                               f"Exit code: {e.returncode}\n\n"
+                               "Possible solutions:\n"
+                               "• Install a compatible video player\n"
+                               "• Check file format compatibility\n"
+                               "• Try opening the file manually")
+            self.preview_area.show_clip_info(clip_name, path)
+
+        except FileNotFoundError as e:
+            messagebox.showerror("System Command Missing",
+                               f"Required system command not found: {e}\n\n"
+                               "Please install appropriate system tools or try opening the file manually:\n"
+                               f"{path}")
+            self.preview_area.show_clip_info(clip_name, path)
+
         except Exception as e:
-            messagebox.showerror("Preview Error", f"Could not open video in system player:\n{e}")
+            messagebox.showerror("Unexpected Error",
+                               f"An unexpected error occurred:\n{e}\n\n"
+                               "Try opening the file manually:\n"
+                               f"{path}")
+            self.preview_area.show_clip_info(clip_name, path)
 
     def save_order(self):
         self.project["clips"] = self.clips
