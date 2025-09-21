@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
-# reorder_clips.py — GUI to reorder clips in project.json with playback preview
+# reorder_clips.py — GUI to reorder clips in project.json with system player preview
 #
 # Usage:
 #   python reorder_clips.py
 #   python reorder_clips.py --athlete "Jane Smith"
 #   python reorder_clips.py --dir "athletes/Jane Smith"
 #
-# Requirements: tkinter (python3-tk), Pillow, OpenCV, ffmpeg (only for still-thumb fallback)
+# Note: Preview functionality uses system default video player for reliability.
+# Trade-offs vs embedded player: No scrubbing/looping, but better codec support.
+#
+# Requirements: tkinter (python3-tk)
 
 import argparse
 import json
+import os
 import pathlib
+import platform
+import shutil
 import subprocess
 import sys
 import tkinter as tk
 from tkinter import messagebox
 from typing import List, Tuple, Optional
-from PIL import Image, ImageTk
-import cv2
-import math
-import time
 
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
@@ -86,211 +88,58 @@ def resolve_video_path(base: pathlib.Path, clip_entry: dict) -> pathlib.Path | N
             return c
     return None
 
-# ---------- still-frame fallback for files OpenCV can't decode ----------
-def ffmpeg_first_frame(path: pathlib.Path, out_png: pathlib.Path) -> Optional[Image.Image]:
-    try:
-        cmd = [
-            "ffmpeg","-y","-i",str(path),
-            "-vf","select='gte(n,0)',setpts=N/FRAME_RATE/TB",
-            "-vframes","1", str(out_png)
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        if out_png.exists():
-            return Image.open(out_png)
-    except Exception:
-        return None
-    return None
 
-# ---------- player widget ----------
-class VideoPlayer(tk.Frame):
-    def __init__(self, master, bg="#111"):
+# ---------- preview area widget ----------
+class PreviewArea(tk.Frame):
+    def __init__(self, master, bg="#f0f0f0"):
         super().__init__(master)
-        self.configure(bg=bg)
+        self.configure(bg=bg, bd=1, relief="sunken")
 
-        # UI
-        self.display = tk.Label(self, bd=1, relief="sunken", bg=bg)
-        self.display.grid(row=0, column=0, columnspan=6, sticky="nsew", padx=0, pady=(0,8))
+        # Message and status area
+        self.label = tk.Label(self,
+                             text="Select a clip and click 'Preview' to open in system player",
+                             bg=bg,
+                             fg="#666666",
+                             font=("Arial", 12),
+                             justify="center",
+                             wraplength=400)
+        self.label.pack(expand=True, fill="both", padx=20, pady=20)
 
-        self.btn_play = tk.Button(self, text="Play", width=6, command=self.toggle_play)
-        self.btn_stop = tk.Button(self, text="Stop", width=6, command=self.stop)
-        self.btn_b5  = tk.Button(self, text="⏪ 5s", width=6, command=lambda: self.nudge(-5.0))
-        self.btn_b05 = tk.Button(self, text="◀ 0.5s", width=6, command=lambda: self.nudge(-0.5))
-        self.btn_f05 = tk.Button(self, text="0.5s ▶", width=6, command=lambda: self.nudge(+0.5))
-        self.btn_f5  = tk.Button(self, text="5s ⏩", width=6, command=lambda: self.nudge(+5.0))
+        # Make the area expandable
+        self.pack_propagate(False)
 
-        self.btn_b5.grid(row=1, column=0, padx=2)
-        self.btn_b05.grid(row=1, column=1, padx=2)
-        self.btn_play.grid(row=1, column=2, padx=2)
-        self.btn_stop.grid(row=1, column=3, padx=2)
-        self.btn_f05.grid(row=1, column=4, padx=2)
-        self.btn_f5.grid(row=1, column=5, padx=2)
+    def show_clip_info(self, clip_name: str, file_path: pathlib.Path):
+        """Display information about the selected clip"""
+        try:
+            info_text = f"Selected: {clip_name}\n\n"
+            info_text += f"File: {file_path.name}\n"
 
-        self.loop_var = tk.BooleanVar(value=True)
-        self.chk_loop = tk.Checkbutton(self, text="Loop", variable=self.loop_var)
-        self.chk_loop.grid(row=2, column=0, sticky="w", padx=2, pady=(6,0))
+            # Only get file size if it's a local file (not network drive)
+            # and use non-blocking approach
+            try:
+                if file_path.exists() and file_path.is_file():
+                    # Quick check - only for reasonably accessible files
+                    file_size = file_path.stat().st_size
+                    size_mb = file_size / (1024 * 1024)
+                    info_text += f"Size: {size_mb:.1f} MB\n\n"
+                else:
+                    info_text += "Size: Unknown\n\n"
+            except (OSError, PermissionError):
+                # Network drives or permission issues - skip size
+                info_text += "Size: Unknown\n\n"
 
-        self.lbl_time = tk.Label(self, text="00:00 / 00:00")
-        self.lbl_time.grid(row=2, column=5, sticky="e", padx=2, pady=(6,0))
+            info_text += "Click 'Preview' to open in system player"
+            self.label.configure(text=info_text)
+        except Exception:
+            self.label.configure(text=f"Selected: {clip_name}\n\nClick 'Preview' to open in system player")
 
-        self.scale = tk.Scale(self, from_=0, to=100, orient="horizontal", showvalue=False,
-                              command=self.on_slider)
-        self.scale.grid(row=3, column=0, columnspan=6, sticky="ew")
+    def show_status(self, message: str):
+        """Show a status message"""
+        self.label.configure(text=message)
 
-        # grid weights
-        for c in range(6):
-            self.columnconfigure(c, weight=1)
-        self.rowconfigure(0, weight=1)
-
-        # State
-        self.cap = None
-        self.path = None
-        self.fps = 30.0
-        self.total_frames = 0
-        self.cur_frame = 0
-        self.playing = False
-        self._after_id = None
-        self._tk_img = None
-        self._last_tick = None
-
-        # keyboard
-        self.bind_all("<space>", lambda e: self.toggle_play())
-
-    def open(self, path: pathlib.Path):
-        self.stop()
-        self.path = path
-        self.cap = cv2.VideoCapture(str(path))
-        ok = self.cap.isOpened()
-        if not ok:
-            # graceful message; caller may choose to show still frame instead
-            raise RuntimeError(f"Could not open video: {path}")
-
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
-        if self.fps <= 1e-3:
-            self.fps = 30.0
-        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        if self.total_frames <= 0:
-            # Try estimating with duration if reported
-            dur = self.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
-            self.total_frames = int(round((dur or 1) * self.fps))
-
-        self.cur_frame = 0
-        self.scale.configure(from_=0, to=max(0, self.total_frames-1))
-        self.update_time_label()
-        self._show_current_frame()
-
-    def destroy(self):
-        self.stop()
-        if self.cap is not None:
-            self.cap.release()
-        super().destroy()
-
-    # ----- playback control -----
-    def toggle_play(self):
-        if self.playing:
-            self.pause()
-        else:
-            self.play()
-
-    def play(self):
-        if self.cap is None:
-            return
-        self.playing = True
-        self.btn_play.configure(text="Pause")
-        self._last_tick = time.time()
-        self._schedule_next_frame()
-
-    def pause(self):
-        self.playing = False
-        self.btn_play.configure(text="Play")
-        if self._after_id:
-            self.after_cancel(self._after_id)
-            self._after_id = None
-
-    def stop(self):
-        self.pause()
-        if self.cap is not None:
-            self.cur_frame = 0
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            self._show_current_frame()
-            self.scale.set(0)
-
-    def nudge(self, seconds: float):
-        if self.cap is None:
-            return
-        delta = int(round(seconds * self.fps))
-        self.cur_frame = max(0, min(self.total_frames-1, self.cur_frame + delta))
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame)
-        self._show_current_frame()
-        self.scale.set(self.cur_frame)
-
-    def on_slider(self, value):
-        if self.cap is None:
-            return
-        self.pause()  # pause while scrubbing
-        f = int(value)
-        self.cur_frame = max(0, min(self.total_frames-1, f))
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame)
-        self._show_current_frame()
-
-    # ----- frame/timer -----
-    def _schedule_next_frame(self):
-        if not self.playing or self.cap is None:
-            return
-        # compute delay based on fps
-        delay_ms = max(1, int(round(1000.0 / self.fps)))
-        self._after_id = self.after(delay_ms, self._tick)
-
-    def _tick(self):
-        if not self.playing or self.cap is None:
-            return
-        ok, frame = self.cap.read()
-        if not ok:
-            # reached end
-            if self.loop_var.get():
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                self.cur_frame = 0
-                self.scale.set(0)
-                self._show_current_frame()
-                self._schedule_next_frame()
-            else:
-                self.pause()
-            return
-
-        self.cur_frame = min(self.cur_frame + 1, self.total_frames-1)
-        self._render(frame)
-        self.scale.set(self.cur_frame)
-        self.update_time_label()
-        self._schedule_next_frame()
-
-    def _show_current_frame(self):
-        if self.cap is None:
-            return
-        ok, frame = self.cap.read()
-        if not ok:
-            return
-        # when we read, the internal cursor advanced; step back one so current_frame stays consistent
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, self.cur_frame))
-        self._render(frame)
-        self.update_time_label()
-
-    def _render(self, frame):
-        # convert BGR->RGB and fit to display width while preserving aspect
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        im = Image.fromarray(frame)
-        panel_w = max(400, self.display.winfo_width() or 640)
-        panel_h = max(300, self.display.winfo_height() or 360)
-        r = min(panel_w / im.width, panel_h / im.height)
-        im = im.resize((int(im.width * r), int(im.height * r)), Image.LANCZOS)
-        self._tk_img = ImageTk.PhotoImage(im)
-        self.display.configure(image=self._tk_img)
-
-    def update_time_label(self):
-        cur_s = self.cur_frame / self.fps if self.fps > 0 else 0.0
-        total_s = self.total_frames / self.fps if self.fps > 0 else 0.0
-        def fmt(t):
-            m, s = divmod(int(round(t)), 60)
-            return f"{m:02d}:{s:02d}"
-        self.lbl_time.configure(text=f"{fmt(cur_s)} / {fmt(total_s)}")
+    def reset(self):
+        """Reset to default message"""
+        self.label.configure(text="Select a clip and click 'Preview' to open in system player")
 
 # ---------- drag-and-drop listbox ----------
 class DragListbox(tk.Listbox):
@@ -355,13 +204,15 @@ class ReorderGUI(tk.Tk):
         tk.Button(btns, text="Save Order", command=self.save_order).grid(row=0, column=4, padx=12)
         tk.Button(btns, text="Close", command=self.destroy).grid(row=0, column=5, padx=2)
 
-        # Player pane
+        # Preview pane
         tk.Label(right, text="Preview:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w")
-        self.player = VideoPlayer(right)
-        self.player.grid(row=1, column=0, sticky="nsew", pady=(4,0))
+        self.preview_area = PreviewArea(right)
+        self.preview_area.grid(row=1, column=0, sticky="nsew", pady=(4,0))
 
         # Double-click list item to preview
         self.listbox.bind("<Double-Button-1>", lambda e: self.preview_selected())
+        # Show clip info when selection changes
+        self.listbox.bind("<<ListboxSelect>>", self.on_selection_change)
 
         # Shortcuts
         self.bind("<Control-Up>", lambda e: self.move_up())
@@ -370,6 +221,28 @@ class ReorderGUI(tk.Tk):
     def current_selection(self) -> Optional[int]:
         sel = self.listbox.curselection()
         return sel[0] if sel else None
+
+    def on_selection_change(self, event=None):
+        """Handle listbox selection change to show clip info"""
+        i = self.current_selection()
+        if i is None:
+            self.preview_area.reset()
+            return
+
+        try:
+            # Validate bounds to prevent IndexError
+            if i >= len(self.clips):
+                self.preview_area.reset()
+                return
+
+            clip_name = self.listbox.get(i)
+            path = resolve_video_path(self.base, self.clips[i])
+            if path and path.exists():
+                self.preview_area.show_clip_info(clip_name, path)
+            else:
+                self.preview_area.show_status(f"Selected: {clip_name}\n\n⚠️ File not found")
+        except Exception:
+            self.preview_area.reset()
 
     def move_up(self):
         i = self.current_selection()
@@ -401,33 +274,128 @@ class ReorderGUI(tk.Tk):
             self.listbox.insert(tk.END, name)
 
     def preview_selected(self):
+        """Open selected clip in system default video player with comprehensive error handling"""
         i = self.current_selection()
-        if i is None: return
+        if i is None:
+            messagebox.showwarning("No Selection", "Please select a clip to preview.")
+            return
+
+        # Validate bounds to prevent IndexError
+        if i >= len(self.clips):
+            messagebox.showerror("Selection Error", "Selected item is out of range. Please refresh and try again.")
+            return
+
+        # Get and validate the file path
         path = resolve_video_path(self.base, self.clips[i])
         if not path:
-            messagebox.showwarning("Preview", "Could not locate file or proxy for this clip.")
+            messagebox.showwarning("File Not Found",
+                                 "Could not locate file or proxy for this clip.\n\n"
+                                 "Possible solutions:\n"
+                                 "• Check if the source file exists in clips_in/\n"
+                                 "• Run render_highlight.py to generate proxies")
             return
-        # Try to open for playback
+
+        if not path.exists():
+            messagebox.showerror("File Missing",
+                               f"File does not exist:\n{path}\n\n"
+                               "The file may have been moved or deleted.")
+            return
+
+        # Show status while launching
+        clip_name = self.listbox.get(i)
+        self.preview_area.show_status(f"Opening {clip_name}...")
+        self.update_idletasks()  # Refresh UI without blocking
+
+        # Additional security: validate path is safe
         try:
-            self.player.open(path)
-            self.player.play()
-        except Exception:
-            # If playback fails (codec), show a single still as fallback
-            thumbs = self.base / "work" / "thumbs"
-            thumbs.mkdir(parents=True, exist_ok=True)
-            thumb_png = thumbs / (path.stem + ".png")
-            im = ffmpeg_first_frame(path, thumb_png)
-            if im is None:
-                messagebox.showwarning("Preview", "Could not read a frame from this clip.")
+            # Resolve path to prevent directory traversal attacks
+            resolved_path = path.resolve()
+            # Ensure path is within expected directories (athletes folder or work folder)
+            if not (str(resolved_path).startswith(str(self.base.resolve())) or
+                   str(resolved_path).startswith(str((self.base / "work").resolve()))):
+                messagebox.showerror("Security Error", "File path is outside allowed directories.")
                 return
-            self.player.pause()
-            # Render still onto player display
-            panel_w = max(400, self.player.display.winfo_width() or 640)
-            panel_h = max(300, self.player.display.winfo_height() or 360)
-            r = min(panel_w / im.width, panel_h / im.height)
-            im = im.resize((int(im.width * r), int(im.height * r)), Image.LANCZOS)
-            self.player._tk_img = ImageTk.PhotoImage(im)
-            self.player.display.configure(image=self.player._tk_img)
+        except (OSError, ValueError) as e:
+            messagebox.showerror("Path Error", f"Invalid file path: {e}")
+            return
+
+        # Launch system player with proper error handling and security
+        try:
+            system = platform.system()
+            success = False
+            safe_path = str(resolved_path)  # Use resolved path
+
+            if system == "Darwin":  # macOS
+                if shutil.which("open"):
+                    subprocess.run(["open", safe_path], check=True, shell=False, timeout=10)
+                    success = True
+                else:
+                    raise FileNotFoundError("'open' command not available")
+
+            elif system == "Windows":
+                # os.startfile is Windows-specific and secure
+                os.startfile(safe_path)
+                success = True
+
+            else:  # Linux and others
+                if shutil.which("xdg-open"):
+                    subprocess.run(["xdg-open", safe_path], check=True, shell=False, timeout=10)
+                    success = True
+                else:
+                    raise FileNotFoundError("'xdg-open' command not available")
+
+            if success:
+                # Show success status briefly, then restore clip info
+                self.preview_area.show_status(f"✓ Opened {clip_name} in system player")
+
+                # Safe callback that checks if window still exists
+                def restore_clip_info():
+                    try:
+                        if self.winfo_exists():
+                            self.preview_area.show_clip_info(clip_name, path)
+                    except tk.TclError:
+                        pass  # Window was destroyed
+
+                def restore_focus():
+                    try:
+                        if self.winfo_exists():
+                            self.lift()
+                            self.focus_set()  # Less aggressive than focus_force()
+                    except tk.TclError:
+                        pass  # Window was destroyed
+
+                self.after(2000, restore_clip_info)
+                self.after(1000, restore_focus)
+
+        except subprocess.TimeoutExpired:
+            messagebox.showerror("Preview Timeout",
+                               "System player took too long to start.\n\n"
+                               "The file may be corrupted or the system is busy.")
+            self.preview_area.show_clip_info(clip_name, path)
+
+        except subprocess.CalledProcessError as e:
+            messagebox.showerror("System Player Error",
+                               f"System player failed to open the file.\n\n"
+                               f"Exit code: {e.returncode}\n\n"
+                               "Possible solutions:\n"
+                               "• Install a compatible video player\n"
+                               "• Check file format compatibility\n"
+                               "• Try opening the file manually")
+            self.preview_area.show_clip_info(clip_name, path)
+
+        except FileNotFoundError as e:
+            messagebox.showerror("System Command Missing",
+                               f"Required system command not found: {e}\n\n"
+                               "Please install appropriate system tools or try opening the file manually:\n"
+                               f"{path}")
+            self.preview_area.show_clip_info(clip_name, path)
+
+        except Exception as e:
+            messagebox.showerror("Unexpected Error",
+                               f"An unexpected error occurred:\n{e}\n\n"
+                               "Try opening the file manually:\n"
+                               f"{path}")
+            self.preview_area.show_clip_info(clip_name, path)
 
     def save_order(self):
         self.project["clips"] = self.clips
