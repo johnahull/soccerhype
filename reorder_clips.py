@@ -111,15 +111,24 @@ class PreviewArea(tk.Frame):
     def show_clip_info(self, clip_name: str, file_path: pathlib.Path):
         """Display information about the selected clip"""
         try:
-            # Get file info
-            file_size = file_path.stat().st_size if file_path.exists() else 0
-            size_mb = file_size / (1024 * 1024)
-
             info_text = f"Selected: {clip_name}\n\n"
             info_text += f"File: {file_path.name}\n"
-            info_text += f"Size: {size_mb:.1f} MB\n\n"
-            info_text += "Click 'Preview' to open in system player"
 
+            # Only get file size if it's a local file (not network drive)
+            # and use non-blocking approach
+            try:
+                if file_path.exists() and file_path.is_file():
+                    # Quick check - only for reasonably accessible files
+                    file_size = file_path.stat().st_size
+                    size_mb = file_size / (1024 * 1024)
+                    info_text += f"Size: {size_mb:.1f} MB\n\n"
+                else:
+                    info_text += "Size: Unknown\n\n"
+            except (OSError, PermissionError):
+                # Network drives or permission issues - skip size
+                info_text += "Size: Unknown\n\n"
+
+            info_text += "Click 'Preview' to open in system player"
             self.label.configure(text=info_text)
         except Exception:
             self.label.configure(text=f"Selected: {clip_name}\n\nClick 'Preview' to open in system player")
@@ -221,6 +230,11 @@ class ReorderGUI(tk.Tk):
             return
 
         try:
+            # Validate bounds to prevent IndexError
+            if i >= len(self.clips):
+                self.preview_area.reset()
+                return
+
             clip_name = self.listbox.get(i)
             path = resolve_video_path(self.base, self.clips[i])
             if path and path.exists():
@@ -266,6 +280,11 @@ class ReorderGUI(tk.Tk):
             messagebox.showwarning("No Selection", "Please select a clip to preview.")
             return
 
+        # Validate bounds to prevent IndexError
+        if i >= len(self.clips):
+            messagebox.showerror("Selection Error", "Selected item is out of range. Please refresh and try again.")
+            return
+
         # Get and validate the file path
         path = resolve_video_path(self.base, self.clips[i])
         if not path:
@@ -285,28 +304,42 @@ class ReorderGUI(tk.Tk):
         # Show status while launching
         clip_name = self.listbox.get(i)
         self.preview_area.show_status(f"Opening {clip_name}...")
-        self.update()  # Force UI update
+        self.update_idletasks()  # Refresh UI without blocking
+
+        # Additional security: validate path is safe
+        try:
+            # Resolve path to prevent directory traversal attacks
+            resolved_path = path.resolve()
+            # Ensure path is within expected directories (athletes folder or work folder)
+            if not (str(resolved_path).startswith(str(self.base.resolve())) or
+                   str(resolved_path).startswith(str((self.base / "work").resolve()))):
+                messagebox.showerror("Security Error", "File path is outside allowed directories.")
+                return
+        except (OSError, ValueError) as e:
+            messagebox.showerror("Path Error", f"Invalid file path: {e}")
+            return
 
         # Launch system player with proper error handling and security
         try:
             system = platform.system()
             success = False
+            safe_path = str(resolved_path)  # Use resolved path
 
             if system == "Darwin":  # macOS
                 if shutil.which("open"):
-                    subprocess.run(["open", str(path)], check=True, shell=False, timeout=10)
+                    subprocess.run(["open", safe_path], check=True, shell=False, timeout=10)
                     success = True
                 else:
                     raise FileNotFoundError("'open' command not available")
 
             elif system == "Windows":
                 # os.startfile is Windows-specific and secure
-                os.startfile(str(path))
+                os.startfile(safe_path)
                 success = True
 
             else:  # Linux and others
                 if shutil.which("xdg-open"):
-                    subprocess.run(["xdg-open", str(path)], check=True, shell=False, timeout=10)
+                    subprocess.run(["xdg-open", safe_path], check=True, shell=False, timeout=10)
                     success = True
                 else:
                     raise FileNotFoundError("'xdg-open' command not available")
@@ -314,10 +347,25 @@ class ReorderGUI(tk.Tk):
             if success:
                 # Show success status briefly, then restore clip info
                 self.preview_area.show_status(f"✓ Opened {clip_name} in system player")
-                self.after(2000, lambda: self.preview_area.show_clip_info(clip_name, path))
 
-                # Restore focus to our window after brief delay
-                self.after(1000, lambda: (self.lift(), self.focus_force()))
+                # Safe callback that checks if window still exists
+                def restore_clip_info():
+                    try:
+                        if self.winfo_exists():
+                            self.preview_area.show_clip_info(clip_name, path)
+                    except tk.TclError:
+                        pass  # Window was destroyed
+
+                def restore_focus():
+                    try:
+                        if self.winfo_exists():
+                            self.lift()
+                            self.focus_set()  # Less aggressive than focus_force()
+                    except tk.TclError:
+                        pass  # Window was destroyed
+
+                self.after(2000, restore_clip_info)
+                self.after(1000, restore_focus)
 
         except subprocess.TimeoutExpired:
             messagebox.showerror("Preview Timeout",
