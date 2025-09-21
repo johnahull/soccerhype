@@ -173,6 +173,9 @@ class VideoPlayer(tk.Frame):
             dur = self.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
             self.total_frames = int(round((dur or 1) * self.fps))
 
+        # Ensure we have a minimum of 1 frame
+        self.total_frames = max(1, self.total_frames)
+
         self.cur_frame = 0
         self.scale.configure(from_=0, to=max(0, self.total_frames-1))
         self.update_time_label()
@@ -194,6 +197,8 @@ class VideoPlayer(tk.Frame):
     def play(self):
         if self.cap is None:
             return
+        # Ensure OpenCV position matches our current frame before starting playback
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame)
         self.playing = True
         self.btn_play.configure(text="Pause")
         self._last_tick = time.time()
@@ -218,8 +223,8 @@ class VideoPlayer(tk.Frame):
         if self.cap is None:
             return
         delta = int(round(seconds * self.fps))
-        self.cur_frame = max(0, min(self.total_frames-1, self.cur_frame + delta))
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame)
+        new_frame = self.cur_frame + delta
+        self.cur_frame = max(0, min(self.total_frames-1, new_frame))
         self._show_current_frame()
         self.scale.set(self.cur_frame)
 
@@ -229,7 +234,6 @@ class VideoPlayer(tk.Frame):
         self.pause()  # pause while scrubbing
         f = int(value)
         self.cur_frame = max(0, min(self.total_frames-1, f))
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame)
         self._show_current_frame()
 
     # ----- frame/timer -----
@@ -243,21 +247,31 @@ class VideoPlayer(tk.Frame):
     def _tick(self):
         if not self.playing or self.cap is None:
             return
+
+        # Read the next frame sequentially (OpenCV automatically advances)
         ok, frame = self.cap.read()
+
         if not ok:
             # reached end
             if self.loop_var.get():
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 self.cur_frame = 0
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 self.scale.set(0)
-                self._show_current_frame()
+                # Read first frame for loop
+                ok, frame = self.cap.read()
+                if ok:
+                    self._render(frame)
+                    self.cur_frame = 1  # We're now at frame 1 after reading frame 0
+                self.update_time_label()
                 self._schedule_next_frame()
             else:
                 self.pause()
             return
 
-        self.cur_frame = min(self.cur_frame + 1, self.total_frames-1)
+        # Render current frame
         self._render(frame)
+        # Update our frame counter to match OpenCV's position
+        self.cur_frame = min(self.cur_frame + 1, self.total_frames-1)
         self.scale.set(self.cur_frame)
         self.update_time_label()
         self._schedule_next_frame()
@@ -265,12 +279,18 @@ class VideoPlayer(tk.Frame):
     def _show_current_frame(self):
         if self.cap is None:
             return
+
+        # Always seek to ensure we're at the right position for display
+        # (this method is called during seeking/scrubbing operations)
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame)
         ok, frame = self.cap.read()
         if not ok:
             return
-        # when we read, the internal cursor advanced; step back one so current_frame stays consistent
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, self.cur_frame))
+
+        # Render the frame and reset position back to cur_frame
+        # since cap.read() advanced the position
         self._render(frame)
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame)
         self.update_time_label()
 
     def _render(self, frame):
