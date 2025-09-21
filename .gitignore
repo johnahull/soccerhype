@@ -1,0 +1,67 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Project-specific directories
+athletes/
+logs/
+templates/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+
+# pytest cache
+.pytest_cache/
+
+# mypy cache
+.mypy_cache/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Test artifacts
+.tox/
+
+# Personal test files
+test_*.mp4
+test_*.mov
+test_*.avi
+sample_*.mp4
+
+# Profile images for testing (keep actual ones)
+*.jpg
+*.png
+*.bmp
+*.gif
+*.webp
+!phia-profile.jpg
