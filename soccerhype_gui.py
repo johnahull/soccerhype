@@ -650,7 +650,7 @@ class PlayerInfoDialog:
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f"Player Information - {athlete_name}")
-        self.dialog.geometry("500x650")
+        self.dialog.geometry("650x650")  # Increased width for button visibility
         self.dialog.resizable(False, False)
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -748,12 +748,20 @@ class PlayerInfoDialog:
         button_frame = tk.Frame(main_frame)
         button_frame.pack(fill='x', pady=(15, 0))
 
-        tk.Button(button_frame, text="Cancel", command=self.cancel,
-                 font=("Segoe UI", 10), width=12).pack(side='right', padx=(5, 0))
-        tk.Button(button_frame, text="Save Info Only", command=self.save_only,
-                 bg="#FF9800", fg="white", font=("Segoe UI", 10), width=15).pack(side='right', padx=(5, 0))
-        tk.Button(button_frame, text="Continue to Mark Plays", command=self.accept,
-                 bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold"), width=20).pack(side='right')
+        # Use grid for more reliable button layout
+        button_frame.columnconfigure(0, weight=1)  # Spacer column
+
+        continue_btn = tk.Button(button_frame, text="Continue to Mark Plays", command=self.accept,
+                               bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold"), width=18)
+        continue_btn.grid(row=0, column=1, padx=(0, 5))
+
+        save_btn = tk.Button(button_frame, text="Save Info Only", command=self.save_only,
+                           bg="#FF9800", fg="white", font=("Segoe UI", 10), width=14)
+        save_btn.grid(row=0, column=2, padx=(0, 5))
+
+        cancel_btn = tk.Button(button_frame, text="Cancel", command=self.cancel,
+                             font=("Segoe UI", 10), width=10)
+        cancel_btn.grid(row=0, column=3)
 
         # Focus on name field
         if hasattr(self, '_name_entry'):
