@@ -498,6 +498,11 @@ class SoccerHypeGUI:
             # User cancelled
             return
 
+        if dialog.result == "save_only":
+            # User chose to save info only, don't proceed with marking
+            self.refresh_athletes()
+            return
+
         player_data = dialog.result
 
         # Build command line arguments
@@ -745,6 +750,8 @@ class PlayerInfoDialog:
 
         tk.Button(button_frame, text="Cancel", command=self.cancel,
                  font=("Segoe UI", 10), width=12).pack(side='right', padx=(5, 0))
+        tk.Button(button_frame, text="Save Info Only", command=self.save_only,
+                 bg="#FF9800", fg="white", font=("Segoe UI", 10), width=15).pack(side='right', padx=(5, 0))
         tk.Button(button_frame, text="Continue to Mark Plays", command=self.accept,
                  bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold"), width=20).pack(side='right')
 
@@ -774,6 +781,60 @@ class PlayerInfoDialog:
             "overwrite": self.overwrite_var.get()
         }
         self.dialog.destroy()
+
+    def save_only(self):
+        """Save player information only without proceeding to mark plays"""
+        # Validate required fields
+        if not self.name_var.get().strip():
+            messagebox.showerror("Validation Error", "Player name is required.")
+            return
+
+        # Create player data dictionary
+        player_data = {
+            "name": self.name_var.get().strip(),
+            "title": self.title_var.get().strip(),
+            "position": self.position_var.get().strip(),
+            "grad_year": self.grad_year_var.get().strip(),
+            "club_team": self.club_team_var.get().strip(),
+            "high_school": self.high_school_var.get().strip(),
+            "height_weight": self.height_weight_var.get().strip(),
+            "gpa": self.gpa_var.get().strip(),
+            "email": self.email_var.get().strip(),
+            "phone": self.phone_var.get().strip(),
+        }
+
+        # Save to project.json with minimal structure
+        project_data = {
+            "player": player_data,
+            "include_intro": self.include_intro_var.get(),
+            "intro_media": None,
+            "clips": []
+        }
+
+        # Determine the athlete directory path
+        import pathlib
+        import json
+        athletes_dir = pathlib.Path.cwd() / "athletes"
+        athlete_dir = athletes_dir / self.athlete_name
+        project_path = athlete_dir / "project.json"
+
+        try:
+            # Ensure the athlete directory exists
+            athlete_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save the project file
+            with open(project_path, 'w') as f:
+                json.dump(project_data, f, indent=2)
+
+            messagebox.showinfo("Success",
+                f"Player information saved successfully!\n\nFile: {project_path}")
+
+            # Set result to indicate save-only operation
+            self.result = "save_only"
+            self.dialog.destroy()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save player information:\n{str(e)}")
 
     def cancel(self):
         """Cancel the dialog"""
