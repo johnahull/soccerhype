@@ -744,24 +744,21 @@ class PlayerInfoDialog:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Buttons
+        # Buttons - stacked vertically for better visibility
         button_frame = tk.Frame(main_frame)
         button_frame.pack(fill='x', pady=(15, 0))
 
-        # Use grid for more reliable button layout
-        button_frame.columnconfigure(0, weight=1)  # Spacer column
-
         continue_btn = tk.Button(button_frame, text="Continue to Mark Plays", command=self.accept,
-                               bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold"), width=18)
-        continue_btn.grid(row=0, column=1, padx=(0, 5))
+                               bg="#4CAF50", fg="white", font=("Segoe UI", 11, "bold"))
+        continue_btn.pack(fill='x', pady=(0, 8))
 
         save_btn = tk.Button(button_frame, text="Save Info Only", command=self.save_only,
-                           bg="#FF9800", fg="white", font=("Segoe UI", 10), width=14)
-        save_btn.grid(row=0, column=2, padx=(0, 5))
+                           bg="#FF9800", fg="white", font=("Segoe UI", 10))
+        save_btn.pack(fill='x', pady=(0, 8))
 
         cancel_btn = tk.Button(button_frame, text="Cancel", command=self.cancel,
-                             font=("Segoe UI", 10), width=10)
-        cancel_btn.grid(row=0, column=3)
+                             font=("Segoe UI", 10))
+        cancel_btn.pack(fill='x')
 
         # Focus on name field
         if hasattr(self, '_name_entry'):
