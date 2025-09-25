@@ -7,6 +7,7 @@ Main launcher that provides a guided workflow for all video processing tasks.
 import argparse
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import threading
@@ -673,6 +674,7 @@ class PlayerInfoDialog:
         self.overwrite_var = tk.BooleanVar(value=project_exists)
 
         self.setup_ui(project_exists)
+        self.scan_existing_media()  # Check for existing intro media
 
         # Wait for dialog to complete
         self.dialog.wait_window()
@@ -734,6 +736,42 @@ class PlayerInfoDialog:
             if required:
                 entry.config(highlightbackground="#007ACC", highlightthickness=1)
 
+        # Intro Media Section
+        intro_frame = tk.Frame(scrollable_frame, relief="solid", bd=1, bg="#f8f9fa")
+        intro_frame.pack(fill='x', pady=15)
+
+        intro_title = tk.Label(intro_frame, text="Intro Media (Optional)",
+                              font=("Segoe UI", 12, "bold"), bg="#f8f9fa")
+        intro_title.pack(anchor='w', padx=10, pady=(10, 5))
+
+        intro_desc = tk.Label(intro_frame,
+                             text="Add a player picture or intro video for the highlight slate",
+                             font=("Segoe UI", 9), bg="#f8f9fa", fg="#666")
+        intro_desc.pack(anchor='w', padx=10, pady=(0, 10))
+
+        # Media selection frame
+        media_frame = tk.Frame(intro_frame, bg="#f8f9fa")
+        media_frame.pack(fill='x', padx=10, pady=(0, 10))
+
+        self.selected_media_var = tk.StringVar()
+        self.media_files = []  # Store available media files
+
+        # Current selection display
+        self.current_media_label = tk.Label(media_frame, text="No media selected",
+                                          font=("Segoe UI", 9), bg="#f8f9fa")
+        self.current_media_label.pack(anchor='w', pady=(0, 5))
+
+        # Buttons for media management
+        media_btn_frame = tk.Frame(media_frame, bg="#f8f9fa")
+        media_btn_frame.pack(fill='x')
+
+        tk.Button(media_btn_frame, text="Browse & Upload", command=self.browse_media,
+                 font=("Segoe UI", 9), bg="#007ACC", fg="white").pack(side='left', padx=(0, 5))
+        tk.Button(media_btn_frame, text="Choose Existing", command=self.choose_existing_media,
+                 font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
+        tk.Button(media_btn_frame, text="Clear Selection", command=self.clear_media_selection,
+                 font=("Segoe UI", 9)).pack(side='left')
+
         # Checkboxes
         checkbox_frame = tk.Frame(scrollable_frame)
         checkbox_frame.pack(fill='x', pady=15)
@@ -764,6 +802,134 @@ class PlayerInfoDialog:
         if hasattr(self, '_name_entry'):
             self._name_entry.focus()
 
+    def scan_existing_media(self):
+        """Scan for existing intro media files"""
+        athlete_dir = pathlib.Path("athletes") / self.athlete_name
+        intro_dir = athlete_dir / "intro"
+
+        self.media_files = []
+        if intro_dir.exists():
+            # Supported image formats
+            image_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp'}
+            # Supported video formats
+            video_exts = {'.mp4', '.mov', '.avi', '.mkv'}
+
+            for file_path in intro_dir.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() in (image_exts | video_exts):
+                    self.media_files.append(file_path)
+
+            if self.media_files:
+                self.current_media_label.config(text=f"Found {len(self.media_files)} media file(s) in intro folder")
+            else:
+                self.current_media_label.config(text="No media files found in intro folder")
+
+    def browse_media(self):
+        """Browse and upload media files"""
+        filetypes = [
+            ("Image files", "*.jpg *.jpeg *.png *.bmp *.gif *.webp"),
+            ("Video files", "*.mp4 *.mov *.avi *.mkv"),
+            ("All supported", "*.jpg *.jpeg *.png *.bmp *.gif *.webp *.mp4 *.mov *.avi *.mkv"),
+            ("All files", "*.*")
+        ]
+
+        files = filedialog.askopenfilenames(
+            title="Select Player Pictures or Intro Videos",
+            filetypes=filetypes,
+            parent=self.dialog
+        )
+
+        if files:
+            try:
+                # Create intro directory if it doesn't exist
+                athlete_dir = pathlib.Path("athletes") / self.athlete_name
+                intro_dir = athlete_dir / "intro"
+                intro_dir.mkdir(parents=True, exist_ok=True)
+
+                copied_files = []
+                for file_path in files:
+                    source = pathlib.Path(file_path)
+                    destination = intro_dir / source.name
+
+                    # Copy file to intro directory
+                    shutil.copy2(source, destination)
+                    copied_files.append(destination.name)
+
+                messagebox.showinfo("Upload Success",
+                                  f"Copied {len(copied_files)} file(s) to intro folder:\n" +
+                                  "\n".join(copied_files))
+
+                # Refresh the media list
+                self.scan_existing_media()
+
+            except Exception as e:
+                messagebox.showerror("Upload Error", f"Failed to copy files:\n{e}")
+
+    def choose_existing_media(self):
+        """Choose from existing media files"""
+        if not self.media_files:
+            messagebox.showwarning("No Media", "No media files found. Use 'Browse & Upload' to add files.")
+            return
+
+        # Create selection dialog
+        selection_dialog = tk.Toplevel(self.dialog)
+        selection_dialog.title("Choose Intro Media")
+        selection_dialog.geometry("400x300")
+        selection_dialog.resizable(False, False)
+        selection_dialog.transient(self.dialog)
+        selection_dialog.grab_set()
+
+        # Center on parent
+        selection_dialog.geometry(f"+{self.dialog.winfo_rootx() + 100}+{self.dialog.winfo_rooty() + 100}")
+
+        tk.Label(selection_dialog, text="Select intro media file:",
+                font=("Segoe UI", 10, "bold")).pack(pady=10)
+
+        # Listbox for media files
+        listbox_frame = tk.Frame(selection_dialog)
+        listbox_frame.pack(fill='both', expand=True, padx=20, pady=(0, 10))
+
+        listbox = tk.Listbox(listbox_frame, font=("Segoe UI", 9))
+        scrollbar = tk.Scrollbar(listbox_frame, orient="vertical")
+        listbox.config(yscrollcommand=scrollbar.set)
+        scrollbar.config(command=listbox.yview)
+
+        # Add media files to listbox
+        for media_file in self.media_files:
+            file_type = "📷" if media_file.suffix.lower() in {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp'} else "🎥"
+            listbox.insert(tk.END, f"{file_type} {media_file.name}")
+
+        listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Buttons
+        btn_frame = tk.Frame(selection_dialog)
+        btn_frame.pack(fill='x', padx=20, pady=(0, 10))
+
+        selected_media = [None]  # Use list to modify from inner functions
+
+        def select_media():
+            selection = listbox.curselection()
+            if selection:
+                selected_media[0] = self.media_files[selection[0]]
+                self.selected_media_var.set(str(selected_media[0]))
+                self.current_media_label.config(text=f"Selected: {selected_media[0].name}")
+                selection_dialog.destroy()
+            else:
+                messagebox.showwarning("No Selection", "Please select a media file.")
+
+        def cancel_selection():
+            selection_dialog.destroy()
+
+        tk.Button(btn_frame, text="Select", command=select_media,
+                 bg="#4CAF50", fg="white", font=("Segoe UI", 10)).pack(side='right', padx=(5, 0))
+        tk.Button(btn_frame, text="Cancel", command=cancel_selection,
+                 font=("Segoe UI", 10)).pack(side='right')
+
+    def clear_media_selection(self):
+        """Clear the current media selection"""
+        self.selected_media_var.set("")
+        self.current_media_label.config(text="No media selected")
+
     def accept(self):
         """Accept the form and return the data"""
         # Validate required fields
@@ -783,7 +949,8 @@ class PlayerInfoDialog:
             "email": self.email_var.get().strip(),
             "phone": self.phone_var.get().strip(),
             "include_intro": self.include_intro_var.get(),
-            "overwrite": self.overwrite_var.get()
+            "overwrite": self.overwrite_var.get(),
+            "selected_media": self.selected_media_var.get() if self.selected_media_var.get() else None
         }
         self.dialog.destroy()
 
@@ -809,10 +976,17 @@ class PlayerInfoDialog:
         }
 
         # Save to project.json with minimal structure
+        selected_media_path = self.selected_media_var.get() if self.selected_media_var.get() else None
+        intro_media = None
+        if selected_media_path:
+            # Convert absolute path to relative path from athlete directory
+            media_path = pathlib.Path(selected_media_path)
+            intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
+
         project_data = {
             "player": player_data,
             "include_intro": self.include_intro_var.get(),
-            "intro_media": None,
+            "intro_media": intro_media,
             "clips": []
         }
 
