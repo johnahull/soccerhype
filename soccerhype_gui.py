@@ -893,17 +893,53 @@ class PlayerInfoDialog:
                 intro_dir.mkdir(parents=True, exist_ok=True)
 
                 copied_files = []
+                failed_files = []
+
                 for file_path in files:
                     source = pathlib.Path(file_path)
                     destination = intro_dir / source.name
 
-                    # Copy file to intro directory
-                    shutil.copy2(source, destination)
-                    copied_files.append(destination.name)
+                    try:
+                        # Validate source file exists and is readable
+                        if not source.exists():
+                            failed_files.append(f"{source.name}: File not found")
+                            continue
 
-                messagebox.showinfo("Upload Success",
-                                  f"Copied {len(copied_files)} file(s) to intro folder:\n" +
-                                  "\n".join(copied_files))
+                        if not source.is_file():
+                            failed_files.append(f"{source.name}: Not a regular file")
+                            continue
+
+                        # Validate destination path (prevent directory traversal)
+                        if destination.resolve().parent != intro_dir.resolve():
+                            failed_files.append(f"{source.name}: Invalid destination path")
+                            continue
+
+                        # Copy file to intro directory with error handling
+                        shutil.copy2(source, destination)
+                        copied_files.append(destination.name)
+
+                    except PermissionError:
+                        failed_files.append(f"{source.name}: Permission denied")
+                    except OSError as e:
+                        failed_files.append(f"{source.name}: {str(e)}")
+                    except Exception as e:
+                        failed_files.append(f"{source.name}: Unexpected error - {str(e)}")
+
+                # Show results
+                if copied_files and not failed_files:
+                    messagebox.showinfo("Upload Success",
+                                      f"Successfully copied {len(copied_files)} file(s):\n" +
+                                      "\n".join(copied_files))
+                elif copied_files and failed_files:
+                    messagebox.showwarning("Partial Success",
+                                         f"Successfully copied {len(copied_files)} file(s):\n" +
+                                         "\n".join(copied_files) +
+                                         f"\n\nFailed to copy {len(failed_files)} file(s):\n" +
+                                         "\n".join(failed_files))
+                elif failed_files:
+                    messagebox.showerror("Upload Failed",
+                                       f"Failed to copy {len(failed_files)} file(s):\n" +
+                                       "\n".join(failed_files))
 
                 # Refresh the media list
                 self.scan_existing_media()
@@ -1022,13 +1058,24 @@ class PlayerInfoDialog:
             "phone": self.phone_var.get().strip(),
         }
 
+        # Determine the athlete directory path first
+        import pathlib
+        import json
+        athletes_dir = pathlib.Path.cwd() / "athletes"
+        athlete_dir = athletes_dir / self.athlete_name
+        project_path = athlete_dir / "project.json"
+
         # Save to project.json with minimal structure
         selected_media_path = self.selected_media_var.get() if self.selected_media_var.get() else None
         intro_media = None
         if selected_media_path:
             # Convert absolute path to relative path from athlete directory
             media_path = pathlib.Path(selected_media_path)
-            intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
+            try:
+                intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
+            except ValueError:
+                # Handle case where media path is not relative to athlete dir
+                intro_media = str(media_path.name) if media_path.exists() else None
 
         project_data = {
             "player": player_data,
@@ -1036,13 +1083,6 @@ class PlayerInfoDialog:
             "intro_media": intro_media,
             "clips": []
         }
-
-        # Determine the athlete directory path
-        import pathlib
-        import json
-        athletes_dir = pathlib.Path.cwd() / "athletes"
-        athlete_dir = athletes_dir / self.athlete_name
-        project_path = athlete_dir / "project.json"
 
         try:
             # Ensure the athlete directory exists
@@ -1089,13 +1129,33 @@ class PlayerInfoDialog:
         """Save current form data as a new player profile"""
         name = self.name_var.get().strip()
         print(f"DEBUG: save_current_as_profile called with name: '{name}'")
+
+        # Basic validation
+        validation_errors = []
         if not name:
-            print("DEBUG: No name provided, showing warning")
-            messagebox.showwarning("Warning", "Please enter a player name before saving profile.")
+            validation_errors.append("Player name is required")
+        elif len(name) > 100:
+            validation_errors.append("Player name must be 100 characters or less")
+
+        # Validate email if provided
+        email = self.email_var.get().strip()
+        if email:
+            import re
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, email):
+                validation_errors.append("Email address is not valid")
+
+        if validation_errors:
+            print("DEBUG: Validation errors found")
+            messagebox.showerror("Validation Error",
+                               "Please fix the following errors:\n\n" +
+                               "\n".join(f"• {error}" for error in validation_errors))
             return
 
-        # Generate unique profile ID
-        profile_id = f"{name.replace(' ', '_').lower()}_{len(self.player_profiles) + 1}"
+        # Generate unique profile ID using timestamp
+        import time
+        timestamp = str(int(time.time()))
+        profile_id = f"{name.replace(' ', '_').lower()}_{timestamp}"
         print(f"DEBUG: Generated profile ID: {profile_id}")
 
         # Create profile data
@@ -1575,16 +1635,65 @@ class ProfileManagementDialog:
         # Focus on name field
         self.form_entries["Player Name:"].focus_set()
 
-    def save_profile(self):
-        """Save the current profile"""
+    def validate_profile_data(self):
+        """Validate profile data and return validation errors"""
+        errors = []
+
         name = self.name_var.get().strip()
         if not name:
-            messagebox.showwarning("Warning", "Please enter a player name.")
+            errors.append("Player name is required")
+        elif len(name) > 100:
+            errors.append("Player name must be 100 characters or less")
+
+        # Validate graduation year if provided
+        grad_year = self.grad_year_var.get().strip()
+        if grad_year:
+            try:
+                year = int(grad_year)
+                import datetime
+                current_year = datetime.datetime.now().year
+                if year < 1900 or year > current_year + 20:
+                    errors.append("Graduation year must be between 1900 and " + str(current_year + 20))
+            except ValueError:
+                errors.append("Graduation year must be a valid number")
+
+        # Validate email if provided
+        email = self.email_var.get().strip()
+        if email:
+            import re
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, email):
+                errors.append("Email address is not valid")
+
+        # Validate GPA if provided
+        gpa = self.gpa_var.get().strip()
+        if gpa:
+            try:
+                gpa_float = float(gpa)
+                if gpa_float < 0 or gpa_float > 4.0:
+                    errors.append("GPA must be between 0.0 and 4.0")
+            except ValueError:
+                errors.append("GPA must be a valid number")
+
+        return errors
+
+    def save_profile(self):
+        """Save the current profile"""
+        # Validate input data
+        validation_errors = self.validate_profile_data()
+        if validation_errors:
+            messagebox.showerror("Validation Error",
+                               "Please fix the following errors:\n\n" +
+                               "\n".join(f"• {error}" for error in validation_errors))
             return
+
+        name = self.name_var.get().strip()
 
         # Generate profile ID if new profile
         if self.current_profile_id is None:
-            profile_id = f"{name.replace(' ', '_').lower()}_{len(self.player_profiles) + 1}"
+            import time
+            timestamp = str(int(time.time()))
+            profile_id = f"{name.replace(' ', '_').lower()}_{timestamp}"
             self.current_profile_id = profile_id
 
         # Create profile data
@@ -1654,7 +1763,9 @@ class ProfileManagementDialog:
         # Create new profile with modified name
         original_name = original_profile["name"]
         new_name = f"{original_name} (Copy)"
-        new_id = f"{new_name.replace(' ', '_').lower()}_{len(self.player_profiles) + 1}"
+        import time
+        timestamp = str(int(time.time()))
+        new_id = f"{new_name.replace(' ', '_').lower()}_{timestamp}"
 
         original_profile["name"] = new_name
         original_profile["created"] = time.strftime("%Y-%m-%d %H:%M:%S")
