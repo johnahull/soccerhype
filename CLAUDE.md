@@ -29,9 +29,14 @@ pip install -r requirements.txt
 ```
 
 **Dependencies:**
-- Python 3.9+ with OpenCV, Pillow, PyYAML, Tkinter
+- Python 3.9+ with PyYAML, Tkinter (Note: OpenCV and Pillow removed from reorder_clips.py for security)
 - FFmpeg with libx264, libfreetype support
 - Ubuntu 24.04+ (should work on other Linux distros)
+
+**Important Dependency Changes:**
+- **reorder_clips.py**: Now uses system video player instead of embedded OpenCV player for security
+- **Trade-off**: Better security and codec support vs. no embedded scrubbing/looping controls
+- **Benefit**: Eliminates complex video decoding dependencies and security vulnerabilities
 
 ## Core Workflow Commands
 
@@ -70,6 +75,8 @@ python mark_play.py --dir athletes/athlete_name
 **3. Reorder clips with GUI (optional):**
 ```bash
 python reorder_clips.py
+# Note: Uses system video player for preview (xdg-open/open/os.startfile)
+# Provides better security and codec support than embedded player
 ```
 
 **4. Render final highlight video:**
@@ -162,6 +169,13 @@ Contains athlete metadata and clip data with standardized coordinates:
 - Uses CRF 18 for high-quality output
 - Work files can be cleaned up with `--keep-work` option
 
+**Security Features:**
+- **Path Traversal Protection**: All file operations validate paths are within expected directories
+- **Command Injection Prevention**: subprocess.run() used with shell=False and proper argument lists
+- **Atomic File Operations**: Temp file + rename pattern prevents data corruption during writes
+- **Input Validation**: Email regex validation, name length limits, profile ID sanitization
+- **PII Protection**: Player database (players_database.json) excluded from version control
+
 ## Testing and Development
 
 **Testing:**
@@ -176,7 +190,47 @@ Contains athlete metadata and clip data with standardized coordinates:
 ## Troubleshooting
 
 **Common issues:**
-- If OpenCV windows don't show: Ensure running in desktop session (not SSH without X)
 - FFmpeg errors: Verify `ffmpeg -version` shows libx264 and libfreetype support
 - Python import errors: Activate virtual environment and run `pip install -r requirements.txt`
 - Performance issues: Use `--jobs 1` for batch processing on limited hardware
+- Preview not working: Ensure system has default video player (VLC, Media Player, etc.)
+- Large file warnings: Consider using Git LFS for video files >50MB
+
+## Security Guidelines for Contributors
+
+**🔒 Security Best Practices:**
+
+1. **PII Handling:**
+   - NEVER commit files containing personal information (emails, phone numbers)
+   - Always check `players_database.json` is in `.gitignore`
+   - Use placeholder data in tests and examples
+
+2. **File Operations:**
+   - Always validate file paths are within expected directories
+   - Use `pathlib.Path.resolve()` to prevent directory traversal
+   - Implement atomic writes with temp files for data integrity
+
+3. **Input Validation:**
+   - Sanitize all user inputs (profile IDs, file names, form data)
+   - Use regex validation for emails and other structured data
+   - Implement length limits and character restrictions
+
+4. **Subprocess Security:**
+   - Always use `subprocess.run(shell=False)`
+   - Pass arguments as lists, not concatenated strings
+   - Add timeout protection for external commands
+   - Validate executable paths before calling
+
+5. **Error Handling:**
+   - Never expose sensitive paths in error messages
+   - Log security events for audit purposes
+   - Fail securely - prefer blocking over permissive behavior
+
+**📋 Code Review Checklist:**
+- [ ] No PII in committed files
+- [ ] Path traversal protection implemented
+- [ ] Input validation for user data
+- [ ] Secure subprocess calls
+- [ ] Atomic file operations for critical data
+- [ ] Comprehensive error handling
+- [ ] Security tests included

@@ -8,16 +8,17 @@ import argparse
 import json
 import os
 import pathlib
-import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
 from typing import Dict, List, Optional
+
+# Import profile management
+from profile_manager import PlayerProfileManager, sanitize_profile_id
 
 # Import enhanced error handling
 try:
@@ -30,82 +31,8 @@ except ImportError:
     ERROR_HANDLING_AVAILABLE = False
     print("Enhanced error handling not available, using basic error handling")
 
-def sanitize_profile_id(name: str) -> str:
-    """Sanitize a name to create a safe profile ID"""
-    # Remove all non-alphanumeric characters except spaces, convert to lowercase
-    clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', name).strip().lower()
-    # Replace spaces with underscores and collapse multiple underscores
-    clean_name = re.sub(r'\s+', '_', clean_name)
-    # Remove leading/trailing underscores and limit length
-    clean_name = clean_name.strip('_')[:20]
-    # Ensure it's not empty
-    if not clean_name:
-        clean_name = 'player'
-    return clean_name
-
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
-
-class PlayerProfileManager:
-    """Shared profile management functionality"""
-
-    def __init__(self, profiles_db_path: pathlib.Path):
-        self.profiles_db_path = profiles_db_path
-        self.profile_manager.player_profiles = {}
-        self.load_player_profiles()
-
-    def load_player_profiles(self):
-        """Load player profiles from database file"""
-        try:
-            if self.profiles_db_path.exists():
-                with open(self.profiles_db_path, 'r') as f:
-                    self.profile_manager.player_profiles = json.load(f)
-            else:
-                self.profile_manager.player_profiles = {}
-        except (IOError, json.JSONDecodeError) as e:
-            messagebox.showerror("Error", f"Could not load player profiles: {e}")
-            self.profile_manager.player_profiles = {}
-
-    def save_player_profiles(self):
-        """Save player profiles to database file using atomic write"""
-        try:
-            # Use atomic write: write to temp file, then rename
-            temp_fd, temp_path = tempfile.mkstemp(suffix='.json', dir=self.profiles_db_path.parent)
-            try:
-                with os.fdopen(temp_fd, 'w') as f:
-                    json.dump(self.profile_manager.player_profiles, f, indent=2)
-                # Atomic rename on same filesystem
-                os.replace(temp_path, self.profiles_db_path)
-            except Exception:
-                # Clean up temp file on error
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
-                raise
-        except IOError as e:
-            messagebox.showerror("Error", f"Could not save player profiles: {e}")
-
-    def get_profile_names(self):
-        """Get list of profile names for dropdown"""
-        return list(self.profile_manager.player_profiles.keys())
-
-    def get_profile(self, profile_id: str):
-        """Get profile data by ID"""
-        return self.profile_manager.player_profiles.get(profile_id, {})
-
-    def save_profile(self, profile_id: str, profile_data: dict):
-        """Save a profile"""
-        self.profile_manager.player_profiles[profile_id] = profile_data
-        self.profile_manager.save_player_profiles()
-
-    def delete_profile(self, profile_id: str):
-        """Delete a profile"""
-        if profile_id in self.profile_manager.player_profiles:
-            del self.profile_manager.player_profiles[profile_id]
-            self.profile_manager.save_player_profiles()
-            return True
-        return False
 
 class AthleteManager:
     """Handles athlete data and folder management"""
