@@ -46,6 +46,67 @@ def sanitize_profile_id(name: str) -> str:
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
+class PlayerProfileManager:
+    """Shared profile management functionality"""
+
+    def __init__(self, profiles_db_path: pathlib.Path):
+        self.profiles_db_path = profiles_db_path
+        self.profile_manager.player_profiles = {}
+        self.load_player_profiles()
+
+    def load_player_profiles(self):
+        """Load player profiles from database file"""
+        try:
+            if self.profiles_db_path.exists():
+                with open(self.profiles_db_path, 'r') as f:
+                    self.profile_manager.player_profiles = json.load(f)
+            else:
+                self.profile_manager.player_profiles = {}
+        except (IOError, json.JSONDecodeError) as e:
+            messagebox.showerror("Error", f"Could not load player profiles: {e}")
+            self.profile_manager.player_profiles = {}
+
+    def save_player_profiles(self):
+        """Save player profiles to database file using atomic write"""
+        try:
+            # Use atomic write: write to temp file, then rename
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.json', dir=self.profiles_db_path.parent)
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    json.dump(self.profile_manager.player_profiles, f, indent=2)
+                # Atomic rename on same filesystem
+                os.replace(temp_path, self.profiles_db_path)
+            except Exception:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise
+        except IOError as e:
+            messagebox.showerror("Error", f"Could not save player profiles: {e}")
+
+    def get_profile_names(self):
+        """Get list of profile names for dropdown"""
+        return list(self.profile_manager.player_profiles.keys())
+
+    def get_profile(self, profile_id: str):
+        """Get profile data by ID"""
+        return self.profile_manager.player_profiles.get(profile_id, {})
+
+    def save_profile(self, profile_id: str, profile_data: dict):
+        """Save a profile"""
+        self.profile_manager.player_profiles[profile_id] = profile_data
+        self.profile_manager.save_player_profiles()
+
+    def delete_profile(self, profile_id: str):
+        """Delete a profile"""
+        if profile_id in self.profile_manager.player_profiles:
+            del self.profile_manager.player_profiles[profile_id]
+            self.profile_manager.save_player_profiles()
+            return True
+        return False
+
 class AthleteManager:
     """Handles athlete data and folder management"""
 
@@ -696,8 +757,8 @@ class PlayerInfoDialog:
         self.overwrite_var = tk.BooleanVar(value=project_exists)
 
         # Player profile management
-        self.profiles_db_path = pathlib.Path.cwd() / "players_database.json"
-        self.player_profiles = self.load_player_profiles()
+        profiles_db_path = pathlib.Path.cwd() / "players_database.json"
+        self.profile_manager = PlayerProfileManager(profiles_db_path)
         self.selected_profile_id = None
 
         self.setup_ui(project_exists)
@@ -747,8 +808,8 @@ class PlayerInfoDialog:
         # Profile dropdown
         self.profile_combo = ttk.Combobox(profile_select_frame, state="readonly", width=40)
         profile_names = ["<New Player>"]
-        if self.player_profiles:
-            profile_names.extend([p["name"] for p in self.player_profiles.values()])
+        if self.profile_manager.player_profiles:
+            profile_names.extend([p["name"] for p in self.profile_manager.player_profiles.values()])
         self.profile_combo['values'] = profile_names
         self.profile_combo.set("<New Player>")
         self.profile_combo.bind('<<ComboboxSelected>>', self.on_profile_selected)
@@ -765,7 +826,7 @@ class PlayerInfoDialog:
 
         # Dynamic help text
         help_text = "Select a profile to auto-fill fields, or choose '<New Player>' to enter manually."
-        if not self.player_profiles:
+        if not self.profile_manager.player_profiles:
             help_text = "Enter player information below, then click 'Save as Profile' to save for future use."
         tk.Label(profile_frame, text=help_text,
                 font=("Segoe UI", 9), fg="#666", bg="#e8f4fd").pack(anchor='w', padx=10, pady=(0, 5))
@@ -1118,38 +1179,6 @@ class PlayerInfoDialog:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save player information:\n{str(e)}")
 
-    def load_player_profiles(self):
-        """Load player profiles from database file"""
-        try:
-            if self.profiles_db_path.exists():
-                with open(self.profiles_db_path, 'r') as f:
-                    return json.load(f)
-            else:
-                return {}
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Warning: Could not load player profiles: {e}")
-            return {}
-
-    def save_player_profiles(self):
-        """Save player profiles to database file using atomic write"""
-        try:
-            # Use atomic write: write to temp file, then rename
-            temp_fd, temp_path = tempfile.mkstemp(suffix='.json', dir=self.profiles_db_path.parent)
-            try:
-                with os.fdopen(temp_fd, 'w') as f:
-                    json.dump(self.player_profiles, f, indent=2)
-                # Atomic rename on same filesystem
-                os.replace(temp_path, self.profiles_db_path)
-            except Exception:
-                # Clean up temp file on error
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
-                raise
-        except IOError as e:
-            messagebox.showerror("Error", f"Could not save player profiles: {e}")
-
     def save_current_as_profile(self):
         """Save current form data as a new player profile"""
         name = self.name_var.get().strip()
@@ -1195,20 +1224,20 @@ class PlayerInfoDialog:
             "created": time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
-        self.player_profiles[profile_id] = profile
-        self.save_player_profiles()
+        self.profile_manager.player_profiles[profile_id] = profile
+        self.profile_manager.save_player_profiles()
 
         # Update profile selection dropdown
         if hasattr(self, 'profile_combo'):
-            profile_names = ["<New Player>"] + [p["name"] for p in self.player_profiles.values()]
+            profile_names = ["<New Player>"] + [p["name"] for p in self.profile_manager.player_profiles.values()]
             self.profile_combo['values'] = profile_names
 
         messagebox.showinfo("Success", f"Profile saved for {name}")
 
     def load_profile_data(self, profile_id):
         """Load profile data into form fields"""
-        if profile_id in self.player_profiles:
-            profile = self.player_profiles[profile_id]
+        if profile_id in self.profile_manager.player_profiles:
+            profile = self.profile_manager.player_profiles[profile_id]
 
             # Don't override the name field if it's already set for this athlete
             if not self.name_var.get().strip():
@@ -1232,7 +1261,7 @@ class PlayerInfoDialog:
             selection = self.profile_combo.get()
             if selection and selection != "<New Player>":
                 # Find profile by name
-                for profile_id, profile in self.player_profiles.items():
+                for profile_id, profile in self.profile_manager.player_profiles.items():
                     if profile["name"] == selection:
                         self.load_profile_data(profile_id)
                         break
@@ -1242,17 +1271,17 @@ class PlayerInfoDialog:
 
     def delete_selected_profile(self):
         """Delete the currently selected profile"""
-        if self.selected_profile_id and self.selected_profile_id in self.player_profiles:
-            profile_name = self.player_profiles[self.selected_profile_id]["name"]
+        if self.selected_profile_id and self.selected_profile_id in self.profile_manager.player_profiles:
+            profile_name = self.profile_manager.player_profiles[self.selected_profile_id]["name"]
 
             if messagebox.askyesno("Confirm Delete",
                                  f"Are you sure you want to delete the profile for {profile_name}?"):
-                del self.player_profiles[self.selected_profile_id]
-                self.save_player_profiles()
+                del self.profile_manager.player_profiles[self.selected_profile_id]
+                self.profile_manager.save_player_profiles()
 
                 # Update dropdown
                 if hasattr(self, 'profile_combo'):
-                    self.profile_combo['values'] = ["<New Player>"] + [p["name"] for p in self.player_profiles.values()]
+                    self.profile_combo['values'] = ["<New Player>"] + [p["name"] for p in self.profile_manager.player_profiles.values()]
                     self.profile_combo.set("<New Player>")
 
                 self.selected_profile_id = None
@@ -1416,9 +1445,9 @@ class ProfileManagementDialog:
         # Center on parent
         self.dialog.geometry(f"+{parent.winfo_rootx() + 100}+{parent.winfo_rooty() + 50}")
 
-        # Load profiles
-        self.profiles_db_path = pathlib.Path.cwd() / "players_database.json"
-        self.player_profiles = self.load_player_profiles()
+        # Load profiles using shared manager
+        profiles_db_path = pathlib.Path.cwd() / "players_database.json"
+        self.profile_manager = PlayerProfileManager(profiles_db_path)
 
         self.setup_ui()
         self.refresh_profiles_list()
@@ -1531,7 +1560,7 @@ class ProfileManagementDialog:
 
         # Initially disable form if no profiles
         self.current_profile_id = None
-        self.enable_form(len(self.player_profiles) > 0)
+        self.enable_form(len(self.profile_manager.player_profiles) > 0)
 
     def create_form_fields(self):
         """Create the profile detail form fields"""
@@ -1581,42 +1610,11 @@ class ProfileManagementDialog:
         if hasattr(self, 'revert_btn'):
             self.revert_btn.config(state=state)
 
-    def load_player_profiles(self):
-        """Load player profiles from database file"""
-        try:
-            if self.profiles_db_path.exists():
-                with open(self.profiles_db_path, 'r') as f:
-                    return json.load(f)
-            else:
-                return {}
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Warning: Could not load player profiles: {e}")
-            return {}
-
-    def save_player_profiles(self):
-        """Save player profiles to database file using atomic write"""
-        try:
-            # Use atomic write: write to temp file, then rename
-            temp_fd, temp_path = tempfile.mkstemp(suffix='.json', dir=self.profiles_db_path.parent)
-            try:
-                with os.fdopen(temp_fd, 'w') as f:
-                    json.dump(self.player_profiles, f, indent=2)
-                # Atomic rename on same filesystem
-                os.replace(temp_path, self.profiles_db_path)
-            except Exception:
-                # Clean up temp file on error
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
-                raise
-        except IOError as e:
-            messagebox.showerror("Error", f"Could not save player profiles: {e}")
 
     def refresh_profiles_list(self):
         """Refresh the profiles listbox"""
         self.profiles_listbox.delete(0, tk.END)
-        for profile_id, profile in self.player_profiles.items():
+        for profile_id, profile in self.profile_manager.player_profiles.items():
             display_name = f"{profile['name']} ({profile.get('position', 'No Position')})"
             self.profiles_listbox.insert(tk.END, display_name)
 
@@ -1627,7 +1625,7 @@ class ProfileManagementDialog:
             return
 
         # Get profile by index
-        profile_ids = list(self.player_profiles.keys())
+        profile_ids = list(self.profile_manager.player_profiles.keys())
         if selection[0] < len(profile_ids):
             self.current_profile_id = profile_ids[selection[0]]
             self.load_profile_details(self.current_profile_id)
@@ -1635,8 +1633,8 @@ class ProfileManagementDialog:
 
     def load_profile_details(self, profile_id):
         """Load profile data into form fields"""
-        if profile_id in self.player_profiles:
-            profile = self.player_profiles[profile_id]
+        if profile_id in self.profile_manager.player_profiles:
+            profile = self.profile_manager.player_profiles[profile_id]
 
             self.name_var.set(profile.get("name", ""))
             self.title_var.set(profile.get("title", ""))
@@ -1736,17 +1734,17 @@ class ProfileManagementDialog:
             "gpa": self.gpa_var.get().strip(),
             "email": self.email_var.get().strip(),
             "phone": self.phone_var.get().strip(),
-            "created": self.player_profiles.get(self.current_profile_id, {}).get("created",
+            "created": self.profile_manager.player_profiles.get(self.current_profile_id, {}).get("created",
                                                                                 time.strftime("%Y-%m-%d %H:%M:%S")),
             "modified": time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
-        self.player_profiles[self.current_profile_id] = profile
-        self.save_player_profiles()
+        self.profile_manager.player_profiles[self.current_profile_id] = profile
+        self.profile_manager.save_player_profiles()
         self.refresh_profiles_list()
 
         # Select the saved profile in the list
-        profile_ids = list(self.player_profiles.keys())
+        profile_ids = list(self.profile_manager.player_profiles.keys())
         if self.current_profile_id in profile_ids:
             index = profile_ids.index(self.current_profile_id)
             self.profiles_listbox.selection_set(index)
@@ -1760,18 +1758,18 @@ class ProfileManagementDialog:
             messagebox.showwarning("Warning", "Please select a profile to delete.")
             return
 
-        profile_ids = list(self.player_profiles.keys())
+        profile_ids = list(self.profile_manager.player_profiles.keys())
         profile_id = profile_ids[selection[0]]
-        profile_name = self.player_profiles[profile_id]["name"]
+        profile_name = self.profile_manager.player_profiles[profile_id]["name"]
 
         if messagebox.askyesno("Confirm Delete",
                               f"Are you sure you want to delete the profile for {profile_name}?"):
-            del self.player_profiles[profile_id]
-            self.save_player_profiles()
+            del self.profile_manager.player_profiles[profile_id]
+            self.profile_manager.save_player_profiles()
             self.refresh_profiles_list()
 
             # Clear form and disable if no profiles left
-            if not self.player_profiles:
+            if not self.profile_manager.player_profiles:
                 self.new_profile()
                 self.enable_form(False)
 
@@ -1784,9 +1782,9 @@ class ProfileManagementDialog:
             messagebox.showwarning("Warning", "Please select a profile to duplicate.")
             return
 
-        profile_ids = list(self.player_profiles.keys())
+        profile_ids = list(self.profile_manager.player_profiles.keys())
         original_id = profile_ids[selection[0]]
-        original_profile = self.player_profiles[original_id].copy()
+        original_profile = self.profile_manager.player_profiles[original_id].copy()
 
         # Create new profile with modified name
         original_name = original_profile["name"]
@@ -1799,15 +1797,15 @@ class ProfileManagementDialog:
         original_profile["created"] = time.strftime("%Y-%m-%d %H:%M:%S")
         original_profile["modified"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        self.player_profiles[new_id] = original_profile
-        self.save_player_profiles()
+        self.profile_manager.player_profiles[new_id] = original_profile
+        self.profile_manager.save_player_profiles()
         self.refresh_profiles_list()
 
         messagebox.showinfo("Success", f"Profile duplicated as '{new_name}'")
 
     def revert_changes(self):
         """Revert form to last saved state"""
-        if self.current_profile_id and self.current_profile_id in self.player_profiles:
+        if self.current_profile_id and self.current_profile_id in self.profile_manager.player_profiles:
             self.load_profile_details(self.current_profile_id)
         else:
             self.new_profile()
