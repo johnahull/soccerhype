@@ -6,15 +6,18 @@ Main launcher that provides a guided workflow for all video processing tasks.
 
 import argparse
 import json
+import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
+import time
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
 from typing import Dict, List, Optional
-import time
 
 # Import enhanced error handling
 try:
@@ -26,6 +29,19 @@ try:
 except ImportError:
     ERROR_HANDLING_AVAILABLE = False
     print("Enhanced error handling not available, using basic error handling")
+
+def sanitize_profile_id(name: str) -> str:
+    """Sanitize a name to create a safe profile ID"""
+    # Remove all non-alphanumeric characters except spaces, convert to lowercase
+    clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', name).strip().lower()
+    # Replace spaces with underscores and collapse multiple underscores
+    clean_name = re.sub(r'\s+', '_', clean_name)
+    # Remove leading/trailing underscores and limit length
+    clean_name = clean_name.strip('_')[:20]
+    # Ensure it's not empty
+    if not clean_name:
+        clean_name = 'player'
+    return clean_name
 
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
@@ -1115,20 +1131,28 @@ class PlayerInfoDialog:
             return {}
 
     def save_player_profiles(self):
-        """Save player profiles to database file"""
+        """Save player profiles to database file using atomic write"""
         try:
-            print(f"DEBUG: Saving {len(self.player_profiles)} profiles to {self.profiles_db_path}")
-            with open(self.profiles_db_path, 'w') as f:
-                json.dump(self.player_profiles, f, indent=2)
-            print(f"DEBUG: Successfully saved player profiles to {self.profiles_db_path}")
+            # Use atomic write: write to temp file, then rename
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.json', dir=self.profiles_db_path.parent)
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    json.dump(self.player_profiles, f, indent=2)
+                # Atomic rename on same filesystem
+                os.replace(temp_path, self.profiles_db_path)
+            except Exception:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise
         except IOError as e:
-            print(f"DEBUG: Error saving profiles: {e}")
             messagebox.showerror("Error", f"Could not save player profiles: {e}")
 
     def save_current_as_profile(self):
         """Save current form data as a new player profile"""
         name = self.name_var.get().strip()
-        print(f"DEBUG: save_current_as_profile called with name: '{name}'")
 
         # Basic validation
         validation_errors = []
@@ -1146,7 +1170,6 @@ class PlayerInfoDialog:
                 validation_errors.append("Email address is not valid")
 
         if validation_errors:
-            print("DEBUG: Validation errors found")
             messagebox.showerror("Validation Error",
                                "Please fix the following errors:\n\n" +
                                "\n".join(f"• {error}" for error in validation_errors))
@@ -1155,8 +1178,7 @@ class PlayerInfoDialog:
         # Generate unique profile ID using timestamp
         import time
         timestamp = str(int(time.time()))
-        profile_id = f"{name.replace(' ', '_').lower()}_{timestamp}"
-        print(f"DEBUG: Generated profile ID: {profile_id}")
+        profile_id = f"{sanitize_profile_id(name)}_{timestamp}"
 
         # Create profile data
         profile = {
@@ -1173,7 +1195,6 @@ class PlayerInfoDialog:
             "created": time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
-        print(f"DEBUG: Created profile data for {name}")
         self.player_profiles[profile_id] = profile
         self.save_player_profiles()
 
@@ -1181,9 +1202,7 @@ class PlayerInfoDialog:
         if hasattr(self, 'profile_combo'):
             profile_names = ["<New Player>"] + [p["name"] for p in self.player_profiles.values()]
             self.profile_combo['values'] = profile_names
-            print(f"DEBUG: Updated dropdown with {len(profile_names)} options")
 
-        print(f"DEBUG: Profile save completed for {name}")
         messagebox.showinfo("Success", f"Profile saved for {name}")
 
     def load_profile_data(self, profile_id):
@@ -1575,14 +1594,23 @@ class ProfileManagementDialog:
             return {}
 
     def save_player_profiles(self):
-        """Save player profiles to database file"""
+        """Save player profiles to database file using atomic write"""
         try:
-            print(f"DEBUG: Saving {len(self.player_profiles)} profiles to {self.profiles_db_path}")
-            with open(self.profiles_db_path, 'w') as f:
-                json.dump(self.player_profiles, f, indent=2)
-            print(f"DEBUG: Successfully saved player profiles")
+            # Use atomic write: write to temp file, then rename
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.json', dir=self.profiles_db_path.parent)
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    json.dump(self.player_profiles, f, indent=2)
+                # Atomic rename on same filesystem
+                os.replace(temp_path, self.profiles_db_path)
+            except Exception:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise
         except IOError as e:
-            print(f"DEBUG: Error saving profiles: {e}")
             messagebox.showerror("Error", f"Could not save player profiles: {e}")
 
     def refresh_profiles_list(self):
@@ -1693,7 +1721,7 @@ class ProfileManagementDialog:
         if self.current_profile_id is None:
             import time
             timestamp = str(int(time.time()))
-            profile_id = f"{name.replace(' ', '_').lower()}_{timestamp}"
+            profile_id = f"{sanitize_profile_id(name)}_{timestamp}"
             self.current_profile_id = profile_id
 
         # Create profile data
@@ -1765,7 +1793,7 @@ class ProfileManagementDialog:
         new_name = f"{original_name} (Copy)"
         import time
         timestamp = str(int(time.time()))
-        new_id = f"{new_name.replace(' ', '_').lower()}_{timestamp}"
+        new_id = f"{new_sanitize_profile_id(name)}_{timestamp}"
 
         original_profile["name"] = new_name
         original_profile["created"] = time.strftime("%Y-%m-%d %H:%M:%S")
