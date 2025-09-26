@@ -65,3 +65,6 @@ sample_*.mp4
 *.gif
 *.webp
 !phia-profile.jpg
+
+# Player database containing PII - exclude from version control
+players_database.json
