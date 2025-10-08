@@ -1718,7 +1718,7 @@ class ProfileManagementDialog:
         new_name = f"{original_name} (Copy)"
         import time
         timestamp = str(int(time.time()))
-        new_id = f"{new_sanitize_profile_id(name)}_{timestamp}"
+        new_id = f"{sanitize_profile_id(new_name)}_{timestamp}"
 
         original_profile["name"] = new_name
         original_profile["created"] = time.strftime("%Y-%m-%d %H:%M:%S")

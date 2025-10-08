@@ -34,7 +34,6 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
-*.spec.bak
 
 # PyInstaller
 *.manifest

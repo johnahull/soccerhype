@@ -39,7 +39,7 @@ def download_file(url, destination):
 
     try:
         with urllib.request.urlopen(url) as response:
-            total_size = int(response.headers.get('Content-Length', 0))
+            total_size = int(response.headers.get('Content-Length') or 0)
             block_size = 8192
             downloaded = 0
 

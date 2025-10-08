@@ -24,8 +24,9 @@ from PIL import Image, ImageDraw, ImageFont
 # Import FFmpeg utilities for bundled binary detection
 try:
     from ffmpeg_utils import get_ffmpeg_path
-    FFMPEG_CMD = get_ffmpeg_path() or "ffmpeg"
-    FFPROBE_CMD = get_ffmpeg_path().replace('ffmpeg', 'ffprobe') if get_ffmpeg_path() else "ffprobe"
+    _ffmpeg_path = get_ffmpeg_path()
+    FFMPEG_CMD = _ffmpeg_path or "ffmpeg"
+    FFPROBE_CMD = _ffmpeg_path.replace('ffmpeg', 'ffprobe') if _ffmpeg_path else "ffprobe"
 except ImportError:
     # Fallback to system binaries if ffmpeg_utils not available
     FFMPEG_CMD = "ffmpeg"
