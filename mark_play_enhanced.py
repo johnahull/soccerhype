@@ -46,6 +46,14 @@ import time
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 
+# Import FFmpeg utilities for bundled binary detection
+try:
+    from ffmpeg_utils import get_ffmpeg_path
+    FFMPEG_CMD = get_ffmpeg_path() or "ffmpeg"
+except ImportError:
+    # Fallback to system binary if ffmpeg_utils not available
+    FFMPEG_CMD = "ffmpeg"
+
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 TEMPLATES_DIR = ROOT / "templates"
@@ -233,7 +241,7 @@ def list_clips(clips_in: pathlib.Path) -> List[pathlib.Path]:
 def build_proxy(src: pathlib.Path, dst: pathlib.Path, progress_callback=None):
     """Enhanced proxy building with progress callback"""
     vf = f"scale={TARGET_W}:-2:flags=bicubic,fps={FPS},setsar=1"
-    cmd = ["ffmpeg","-y","-noautorotate","-i",str(src),
+    cmd = [FFMPEG_CMD,"-y","-noautorotate","-i",str(src),
            "-vf",vf,
            "-c:v","libx264","-preset","veryfast","-crf",str(CRF),
            "-pix_fmt","yuv420p",

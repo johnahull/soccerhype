@@ -34,6 +34,21 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+*.spec.bak
+
+# PyInstaller
+*.manifest
+*.spec.bak
+
+# FFmpeg binaries (download with bundle_ffmpeg.py)
+binaries/
+temp_ffmpeg_download/
+
+# Installers
+installers/
+*.msi
+*.dmg
+*.pkg
 
 # Coverage reports
 htmlcov/

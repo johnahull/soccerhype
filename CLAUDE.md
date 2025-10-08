@@ -176,6 +176,37 @@ Contains athlete metadata and clip data with standardized coordinates:
 - **Input Validation**: Email regex validation, name length limits, profile ID sanitization
 - **PII Protection**: Player database (players_database.json) excluded from version control
 
+## Standalone Application Packaging
+
+**Creating Standalone Executables:**
+
+SoccerHype can be packaged as a standalone application for Windows and macOS distribution. See [PACKAGING.md](PACKAGING.md) for complete instructions.
+
+**Quick Start:**
+
+*Windows:*
+```bash
+python bundle_ffmpeg.py --platform windows  # Download FFmpeg
+build_windows.bat                           # Build executable
+```
+
+*macOS:*
+```bash
+python3 bundle_ffmpeg.py --platform macos   # Download FFmpeg
+./build_macos.sh                            # Build app bundle
+```
+
+**Key Files:**
+- `soccerhype.spec` - PyInstaller configuration
+- `build_windows.bat` - Windows build script
+- `build_macos.sh` - macOS build script
+- `bundle_ffmpeg.py` - FFmpeg bundling utility
+- `ffmpeg_utils.py` - FFmpeg detection module
+- `PACKAGING.md` - Complete packaging documentation
+
+**FFmpeg Bundling:**
+The standalone application can bundle FFmpeg or use system FFmpeg. The `ffmpeg_utils` module automatically detects and uses bundled FFmpeg when available, falling back to system FFmpeg if not.
+
 ## Testing and Development
 
 **Testing:**

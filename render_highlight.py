@@ -21,6 +21,16 @@ import subprocess
 import sys
 from PIL import Image, ImageDraw, ImageFont
 
+# Import FFmpeg utilities for bundled binary detection
+try:
+    from ffmpeg_utils import get_ffmpeg_path
+    FFMPEG_CMD = get_ffmpeg_path() or "ffmpeg"
+    FFPROBE_CMD = get_ffmpeg_path().replace('ffmpeg', 'ffprobe') if get_ffmpeg_path() else "ffprobe"
+except ImportError:
+    # Fallback to system binaries if ffmpeg_utils not available
+    FFMPEG_CMD = "ffmpeg"
+    FFPROBE_CMD = "ffprobe"
+
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
@@ -80,7 +90,7 @@ def resolve_path(base: pathlib.Path, p: str | None) -> pathlib.Path | None:
 
 def duration_of(path: pathlib.Path) -> float:
     p = subprocess.run(
-        ["ffprobe","-v","error","-show_entries","format=duration",
+        [FFPROBE_CMD,"-v","error","-show_entries","format=duration",
          "-of","default=nk=1:nw=1", str(path)],
         capture_output=True, text=True
     )
@@ -91,7 +101,7 @@ def duration_of(path: pathlib.Path) -> float:
 
 def proxy_fps(path: pathlib.Path) -> float:
     p = subprocess.run(
-        ["ffprobe","-v","error","-select_streams","v:0",
+        [FFPROBE_CMD,"-v","error","-select_streams","v:0",
          "-show_entries","stream=avg_frame_rate",
          "-of","default=nk=1:nw=1", str(path)],
         capture_output=True, text=True
@@ -109,7 +119,7 @@ def proxy_fps(path: pathlib.Path) -> float:
 
 def proxy_frame_count(path: pathlib.Path) -> int:
     p = subprocess.run(
-        ["ffprobe","-v","error","-select_streams","v:0","-count_frames",
+        [FFPROBE_CMD,"-v","error","-select_streams","v:0","-count_frames",
          "-show_entries","stream=nb_read_frames",
          "-of","default=nk=1:nw=1", str(path)],
         capture_output=True, text=True
@@ -140,7 +150,7 @@ def ensure_proxy(src_path: pathlib.Path, std_path: pathlib.Path):
         raise RuntimeError(f"Source clip not found: {src_path}")
 
     cmd = [
-        "ffmpeg","-y",
+        FFMPEG_CMD,"-y",
         "-i", str(src_path),
         "-vf", f"scale={PROXY_W}:-2,fps={FPS}",
         "-an",
@@ -437,7 +447,7 @@ def make_slate_with_image(player: dict, out_path: pathlib.Path, work: pathlib.Pa
 
     # Convert to video
     run([
-        "ffmpeg","-y",
+        FFMPEG_CMD,"-y",
         "-loop","1","-i",str(slate_png),
         "-t","5",
         "-r",str(FPS),
@@ -503,7 +513,7 @@ def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Pa
 def debug_mark(std_mp4: pathlib.Path, frame_idx: int, px: int, py: int, work: pathlib.Path, tag: str):
     frm = work / f"debug_{tag}_frame.png"
     sel = f"select='eq(n\\,{frame_idx})',setpts=N/FRAME_RATE/TB,fps={FPS}"
-    run(["ffmpeg","-y","-i",str(std_mp4),"-vf",sel,"-vsync","vfr","-frames:v","1",str(frm)])
+    run([FFMPEG_CMD,"-y","-i",str(std_mp4),"-vf",sel,"-vsync","vfr","-frames:v","1",str(frm)])
     im = Image.open(frm).convert("RGBA")
     d = ImageDraw.Draw(im)
     L = 22
@@ -518,18 +528,18 @@ def debug_mark(std_mp4: pathlib.Path, frame_idx: int, px: int, py: int, work: pa
 
 def build_video_frames(std_mp4: pathlib.Path, start_f: int, end_f: int, out_v: pathlib.Path):
     if end_f < start_f:
-        run(["ffmpeg","-y","-f","lavfi","-i","color=c=black:s=1920x1080","-t","0.0334",
+        run([FFMPEG_CMD,"-y","-f","lavfi","-i","color=c=black:s=1920x1080","-t","0.0334",
              "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf",str(CRF),"-pix_fmt","yuv420p","-an",str(out_v)])
         return
     sel = f"select='between(n\\,{start_f}\\,{end_f})',setpts=N/FRAME_RATE/TB,fps={FPS}"
-    run(["ffmpeg","-y","-i",str(std_mp4),"-vf",sel,
+    run([FFMPEG_CMD,"-y","-i",str(std_mp4),"-vf",sel,
          "-c:v","libx264","-preset","veryfast","-crf",str(CRF),"-pix_fmt","yuv420p","-an",str(out_v)])
 
 def concat_videos(files: list[pathlib.Path], out_path: pathlib.Path):
     inputs = []
     for f in files: inputs += ["-i", str(f)]
     streams = "".join([f"[{i}:v]" for i in range(len(files))])
-    run(["ffmpeg","-y",*inputs,
+    run([FFMPEG_CMD,"-y",*inputs,
          "-filter_complex",f"{streams}concat=n={len(files)}:v=1:a=0[v]",
          "-map","[v]",
          "-c:v","libx264","-preset","veryfast","-crf",str(CRF),
@@ -553,7 +563,7 @@ def make_freeze_with_spot(std_mp4: pathlib.Path, px: int, py: int, radius: int,
     # Freeze frame -> PNG
     frame_png  = work / (out_mp4.stem + "_frame.png")
     sel = f"select='eq(n\\,{spot_f})',setpts=N/FRAME_RATE/TB,fps={FPS}"
-    run(["ffmpeg","-y","-i",str(std_mp4),"-vf",sel,"-vsync","vfr","-frames:v","1",str(frame_png)])
+    run([FFMPEG_CMD,"-y","-i",str(std_mp4),"-vf",sel,"-vsync","vfr","-frames:v","1",str(frame_png)])
 
     # Composite ring
     ring_png = work / f"{out_mp4.stem}_ring.png"
@@ -563,7 +573,7 @@ def make_freeze_with_spot(std_mp4: pathlib.Path, px: int, py: int, radius: int,
 
     # 1.25s still
     still = work / (out_mp4.stem + "_still.mp4")
-    run(["ffmpeg","-y","-loop","1","-i",str(frame_annot),"-t",str(still_dur),
+    run([FFMPEG_CMD,"-y","-loop","1","-i",str(frame_annot),"-t",str(still_dur),
          "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf",str(CRF),"-pix_fmt","yuv420p","-an",str(still)])
 
     parts = []
