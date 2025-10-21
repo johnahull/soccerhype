@@ -74,6 +74,36 @@ python bundle_ffmpeg.py --platform auto
 **Option B: Use System FFmpeg**
 Users will need to install FFmpeg separately. The application will detect system FFmpeg automatically.
 
+#### FFmpeg Checksum Verification (Production Builds)
+
+For production releases, it's strongly recommended to enable checksum verification to ensure FFmpeg binaries haven't been tampered with:
+
+1. **Download FFmpeg and get its checksum:**
+   ```bash
+   # Download and compute checksum
+   python bundle_ffmpeg.py --platform auto
+   sha256sum binaries/ffmpeg  # Linux/macOS
+   # Or on Windows PowerShell:
+   # Get-FileHash binaries\ffmpeg.exe -Algorithm SHA256
+   ```
+
+2. **Update checksums in bundle_ffmpeg.py:**
+   ```python
+   FFMPEG_CHECKSUMS = {
+       'windows': 'abc123...',  # Replace with actual SHA256 hash
+       'macos': 'def456...',
+       'linux': 'ghi789...',
+   }
+   ```
+
+3. **Re-run bundling to verify:**
+   ```bash
+   python bundle_ffmpeg.py --platform auto
+   # Should print "Checksum verified: abc123..."
+   ```
+
+**Note:** The bundling script automatically includes both FFmpeg and FFprobe when available. FFprobe is not critical for SoccerHype functionality but may be useful for debugging video files.
+
 ### Step 2: Build the Application
 
 #### Windows Build Process

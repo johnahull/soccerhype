@@ -25,17 +25,23 @@ datas = [
 # Binary files (will include FFmpeg if found in binaries/ directory)
 binaries = []
 
-# Try to find and include FFmpeg binary
+# Try to find and include FFmpeg and FFprobe binaries
 ffmpeg_binary_dir = Path('binaries')
 if ffmpeg_binary_dir.exists():
     if is_windows:
         ffmpeg_exe = ffmpeg_binary_dir / 'ffmpeg.exe'
+        ffprobe_exe = ffmpeg_binary_dir / 'ffprobe.exe'
         if ffmpeg_exe.exists():
             binaries.append((str(ffmpeg_exe), 'binaries'))
+        if ffprobe_exe.exists():
+            binaries.append((str(ffprobe_exe), 'binaries'))
     else:  # macOS/Linux
         ffmpeg_bin = ffmpeg_binary_dir / 'ffmpeg'
+        ffprobe_bin = ffmpeg_binary_dir / 'ffprobe'
         if ffmpeg_bin.exists():
             binaries.append((str(ffmpeg_bin), 'binaries'))
+        if ffprobe_bin.exists():
+            binaries.append((str(ffprobe_bin), 'binaries'))
 
 # Hidden imports that PyInstaller might miss
 hiddenimports = [
@@ -55,11 +61,18 @@ hiddenimports = [
 ]
 
 # Add platform-specific hidden imports
+# Note: win32api/win32con are optional and only needed if pywin32 is installed
+# SoccerHype works fine without them, but they may be used by some dependencies
 if is_windows:
-    hiddenimports.extend([
-        'win32api',
-        'win32con',
-    ])
+    try:
+        import win32api
+        hiddenimports.extend([
+            'win32api',
+            'win32con',
+        ])
+    except ImportError:
+        # pywin32 not installed, skip these imports
+        pass
 
 a = Analysis(
     ['soccerhype_gui.py'],

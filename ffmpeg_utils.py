@@ -41,6 +41,36 @@ def get_bundled_ffmpeg_path():
 
     return None
 
+def get_bundled_ffprobe_path():
+    """
+    Get path to bundled FFprobe binary if running as PyInstaller bundle
+    Returns None if not found or not running as bundle
+    """
+    # Check if running as PyInstaller bundle
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # Running as PyInstaller bundle
+        bundle_dir = Path(sys._MEIPASS)
+
+        # Check for FFprobe in binaries subdirectory
+        if platform.system() == 'Windows':
+            ffprobe_path = bundle_dir / 'binaries' / 'ffprobe.exe'
+        else:
+            ffprobe_path = bundle_dir / 'binaries' / 'ffprobe'
+
+        if ffprobe_path.exists() and ffprobe_path.is_file():
+            return str(ffprobe_path)
+
+    # Check for FFprobe in local binaries directory (development mode)
+    if platform.system() == 'Windows':
+        local_ffprobe = Path('binaries') / 'ffprobe.exe'
+    else:
+        local_ffprobe = Path('binaries') / 'ffprobe'
+
+    if local_ffprobe.exists() and local_ffprobe.is_file():
+        return str(local_ffprobe.resolve())
+
+    return None
+
 def get_system_ffmpeg_path():
     """
     Get path to system-installed FFmpeg binary
@@ -48,6 +78,14 @@ def get_system_ffmpeg_path():
     """
     ffmpeg_path = shutil.which('ffmpeg')
     return ffmpeg_path
+
+def get_system_ffprobe_path():
+    """
+    Get path to system-installed FFprobe binary
+    Returns None if not found
+    """
+    ffprobe_path = shutil.which('ffprobe')
+    return ffprobe_path
 
 def get_ffmpeg_path():
     """
@@ -65,6 +103,27 @@ def get_ffmpeg_path():
 
     # Fall back to system
     system = get_system_ffmpeg_path()
+    if system:
+        return system
+
+    return None
+
+def get_ffprobe_path():
+    """
+    Get FFprobe binary path, preferring bundled version over system version
+    Returns path as string, or None if not found
+
+    Priority order:
+    1. Bundled FFprobe (in PyInstaller bundle or local binaries/)
+    2. System FFprobe (in PATH)
+    """
+    # Try bundled first
+    bundled = get_bundled_ffprobe_path()
+    if bundled:
+        return bundled
+
+    # Fall back to system
+    system = get_system_ffprobe_path()
     if system:
         return system
 

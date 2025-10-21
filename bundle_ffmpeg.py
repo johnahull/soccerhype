@@ -173,6 +173,22 @@ def find_ffmpeg_binary(search_dir, platform_name):
 
     return None
 
+def find_ffprobe_binary(search_dir, platform_name):
+    """Find the ffprobe binary in extracted directory"""
+    search_dir = Path(search_dir)
+
+    if platform_name == 'windows':
+        pattern = '**/ffprobe.exe'
+    else:
+        pattern = '**/ffprobe'
+
+    # Search for ffprobe binary
+    for ffprobe_path in search_dir.rglob(pattern):
+        if ffprobe_path.is_file():
+            return ffprobe_path
+
+    return None
+
 def bundle_ffmpeg(platform_name, output_dir='binaries'):
     """Download and bundle FFmpeg for the specified platform"""
     print(f"Bundling FFmpeg for platform: {platform_name}")
@@ -187,8 +203,10 @@ def bundle_ffmpeg(platform_name, output_dir='binaries'):
     # Check if FFmpeg already exists
     if platform_name == 'windows':
         ffmpeg_dest = output_dir / 'ffmpeg.exe'
+        ffprobe_dest = output_dir / 'ffprobe.exe'
     else:
         ffmpeg_dest = output_dir / 'ffmpeg'
+        ffprobe_dest = output_dir / 'ffprobe'
 
     if ffmpeg_dest.exists():
         response = input(f"FFmpeg already exists at {ffmpeg_dest}. Overwrite? (y/N): ")
@@ -196,9 +214,9 @@ def bundle_ffmpeg(platform_name, output_dir='binaries'):
             print("Cancelled.")
             return True
 
-    # Create temporary directory for download
-    temp_dir = Path('temp_ffmpeg_download')
-    temp_dir.mkdir(exist_ok=True)
+    # Create temporary directory for download with unique name for safety
+    import tempfile
+    temp_dir = Path(tempfile.mkdtemp(prefix='ffmpeg_download_'))
 
     try:
         # Determine archive filename
@@ -243,6 +261,20 @@ def bundle_ffmpeg(platform_name, output_dir='binaries'):
             os.chmod(ffmpeg_dest, 0o755)
 
         print(f"\nSuccess! FFmpeg bundled at: {ffmpeg_dest}")
+
+        # Also try to find and bundle ffprobe
+        ffprobe_binary = find_ffprobe_binary(extract_dir, platform_name)
+        if ffprobe_binary:
+            print(f"Found FFprobe at: {ffprobe_binary}")
+            shutil.copy2(ffprobe_binary, ffprobe_dest)
+
+            # Make executable on Unix-like systems
+            if platform_name in ['macos', 'linux']:
+                os.chmod(ffprobe_dest, 0o755)
+
+            print(f"FFprobe bundled at: {ffprobe_dest}")
+        else:
+            print("Note: ffprobe not found in archive (not critical for SoccerHype)")
 
         # Verify the binary works
         print("\nVerifying FFmpeg binary...")
