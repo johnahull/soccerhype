@@ -11,3 +11,6 @@ tk
 # For debugging / development
 pytest
 
+# For standalone application packaging
+pyinstaller>=5.0
+

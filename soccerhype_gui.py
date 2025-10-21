@@ -661,7 +661,7 @@ class PlayerInfoDialog:
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f"Player Information - {athlete_name}")
-        self.dialog.geometry("650x650")  # Increased width for button visibility
+        self.dialog.geometry("750x650")  # Increased width to prevent button overlap
         self.dialog.resizable(False, False)
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -710,8 +710,11 @@ class PlayerInfoDialog:
                     font=("Segoe UI", 9), bg="#fff3cd", fg="#856404").pack(pady=5)
 
         # Create scrollable frame for form fields
-        canvas = tk.Canvas(main_frame, height=450)
-        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        canvas_container = tk.Frame(main_frame)
+        canvas_container.pack(fill='both', expand=True)
+
+        canvas = tk.Canvas(canvas_container)
+        scrollbar = ttk.Scrollbar(canvas_container, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas)
 
         scrollable_frame.bind(
@@ -719,8 +722,11 @@ class PlayerInfoDialog:
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=700)
         canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
         # Profile Selection Section (Always Show)
         profile_frame = tk.Frame(scrollable_frame, bg="#e8f4fd", relief="solid", bd=1)
@@ -733,23 +739,23 @@ class PlayerInfoDialog:
         profile_select_frame.pack(fill='x', padx=10, pady=5)
 
         # Profile dropdown
-        self.profile_combo = ttk.Combobox(profile_select_frame, state="readonly", width=40)
+        self.profile_combo = ttk.Combobox(profile_select_frame, state="readonly")
         profile_names = ["<New Player>"]
         if self.profile_manager.player_profiles:
             profile_names.extend([p["name"] for p in self.profile_manager.player_profiles.values()])
         self.profile_combo['values'] = profile_names
         self.profile_combo.set("<New Player>")
         self.profile_combo.bind('<<ComboboxSelected>>', self.on_profile_selected)
-        self.profile_combo.pack(side='left', fill='x', expand=True)
+        self.profile_combo.pack(fill='x', pady=(0, 5))
 
-        # Profile management buttons
+        # Profile management buttons (stacked below combobox to avoid overlap)
         profile_btn_frame = tk.Frame(profile_select_frame, bg="#e8f4fd")
-        profile_btn_frame.pack(side='right', padx=(10, 0))
+        profile_btn_frame.pack(fill='x')
 
         tk.Button(profile_btn_frame, text="Save as Profile",
-                 command=self.save_current_as_profile, font=("Segoe UI", 9)).pack(side='left', padx=2)
+                 command=self.save_current_as_profile, font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
         tk.Button(profile_btn_frame, text="Delete Profile",
-                 command=self.delete_selected_profile, font=("Segoe UI", 9)).pack(side='left', padx=2)
+                 command=self.delete_selected_profile, font=("Segoe UI", 9)).pack(side='left')
 
         # Dynamic help text
         help_text = "Select a profile to auto-fill fields, or choose '<New Player>' to enter manually."
@@ -830,12 +836,9 @@ class PlayerInfoDialog:
         tk.Checkbutton(checkbox_frame, text="Include intro screen with player slate",
                       variable=self.include_intro_var, font=("Segoe UI", 10)).pack(anchor='w')
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
         # Buttons - stacked vertically for better visibility
         button_frame = tk.Frame(main_frame)
-        button_frame.pack(fill='x', pady=(15, 0))
+        button_frame.pack(fill='x', pady=(10, 0))
 
         continue_btn = tk.Button(button_frame, text="Continue to Mark Plays", command=self.accept,
                                bg="#4CAF50", fg="white", font=("Segoe UI", 11, "bold"))
@@ -1718,7 +1721,7 @@ class ProfileManagementDialog:
         new_name = f"{original_name} (Copy)"
         import time
         timestamp = str(int(time.time()))
-        new_id = f"{new_sanitize_profile_id(name)}_{timestamp}"
+        new_id = f"{sanitize_profile_id(new_name)}_{timestamp}"
 
         original_profile["name"] = new_name
         original_profile["created"] = time.strftime("%Y-%m-%d %H:%M:%S")
