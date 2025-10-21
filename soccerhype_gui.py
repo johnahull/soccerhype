@@ -237,7 +237,7 @@ class SoccerHypeGUI:
             self.error_handler = None
 
         self.root = tk.Tk()
-        self.root.title("SoccerHype - Athlete Highlight Video Creator")
+        self.root.title("SoccerHype - Highlight Video Creator")
         self.root.geometry("800x600")
         self.root.minsize(700, 500)
 
@@ -258,7 +258,7 @@ class SoccerHypeGUI:
 
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="New Athlete...", command=self.new_athlete)
+        file_menu.add_command(label="New Project...", command=self.new_athlete)
         file_menu.add_separator()
         file_menu.add_command(label="Manage Player Profiles...", command=self.manage_player_profiles)
         file_menu.add_separator()
@@ -284,25 +284,25 @@ class SoccerHypeGUI:
         button_frame = tk.Frame(main_frame)
         button_frame.pack(fill='x', pady=(0, 10))
 
-        tk.Button(button_frame, text="New Athlete", command=self.new_athlete,
+        tk.Button(button_frame, text="New Project", command=self.new_athlete,
                  bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold")).pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Refresh", command=self.refresh_athletes,
                  font=("Segoe UI", 10)).pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Batch Operations", command=self.batch_operations,
                  font=("Segoe UI", 10)).pack(side='right')
 
-        # Athletes list
+        # Projects list
         list_frame = tk.Frame(main_frame)
         list_frame.pack(fill='both', expand=True)
 
-        tk.Label(list_frame, text="Athletes", font=("Segoe UI", 12, "bold")).pack(anchor='w')
+        tk.Label(list_frame, text="Projects", font=("Segoe UI", 12, "bold")).pack(anchor='w')
 
-        # Treeview for athletes with status
+        # Treeview for projects with status
         columns = ("Name", "Status", "Clips", "Marked", "Rendered")
         self.athlete_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=15)
 
         # Configure columns
-        self.athlete_tree.heading("Name", text="Athlete Name")
+        self.athlete_tree.heading("Name", text="Project Name")
         self.athlete_tree.heading("Status", text="Workflow Status")
         self.athlete_tree.heading("Clips", text="Has Clips")
         self.athlete_tree.heading("Marked", text="Clips Marked")
@@ -357,8 +357,8 @@ class SoccerHypeGUI:
 
         athletes = self.athlete_manager.discover_athletes()
         if not athletes:
-            # Show helpful message when no athletes exist
-            self.athlete_tree.insert("", 'end', values=("No athletes found", "Click 'New Athlete' to get started", "", "", ""))
+            # Show helpful message when no projects exist
+            self.athlete_tree.insert("", 'end', values=("No projects found", "Click 'New Project' to get started", "", "", ""))
             return
 
         for athlete_dir in athletes:
@@ -390,50 +390,52 @@ class SoccerHypeGUI:
             ))
 
     def get_selected_athlete(self) -> Optional[pathlib.Path]:
-        """Get currently selected athlete directory"""
+        """Get currently selected project directory"""
         selection = self.athlete_tree.selection()
         if not selection:
-            messagebox.showwarning("No Selection", "Please select an athlete first.")
+            messagebox.showwarning("No Selection", "Please select a project first.")
             return None
 
         item = self.athlete_tree.item(selection[0])
         athlete_name = item['values'][0]
 
-        if athlete_name == "No athletes found":
+        if athlete_name == "No projects found":
             return None
 
         return ATHLETES / athlete_name
 
     def new_athlete(self):
-        """Create a new athlete"""
+        """Create a new project"""
         dialog = tk.Toplevel(self.root)
-        dialog.title("New Athlete")
-        dialog.geometry("400x150")
+        dialog.title("New Project")
+        dialog.geometry("450x180")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
 
         # Center on parent
-        dialog.geometry(f"+{self.root.winfo_rootx() + 200}+{self.root.winfo_rooty() + 150}")
+        dialog.geometry(f"+{self.root.winfo_rootx() + 175}+{self.root.winfo_rooty() + 150}")
 
-        tk.Label(dialog, text="Enter athlete name:", font=("Segoe UI", 10)).pack(pady=10)
+        tk.Label(dialog, text="Enter project name:", font=("Segoe UI", 10, "bold")).pack(pady=(10, 5))
+        tk.Label(dialog, text="(e.g., 'Phia Hull - Fall 2024 Highlights')",
+                font=("Segoe UI", 9), fg="#666").pack(pady=(0, 10))
 
         name_var = tk.StringVar()
-        entry = tk.Entry(dialog, textvariable=name_var, font=("Segoe UI", 10), width=30)
-        entry.pack(pady=5)
+        entry = tk.Entry(dialog, textvariable=name_var, font=("Segoe UI", 10), width=40)
+        entry.pack(pady=5, padx=20)
         entry.focus()
 
         def create():
             name = name_var.get().strip()
             if not name:
-                messagebox.showerror("Error", "Please enter a name.")
+                messagebox.showerror("Error", "Please enter a project name.")
                 return
 
             athlete_dir = self.athlete_manager.create_athlete(name)
             if athlete_dir:
                 dialog.destroy()
                 self.refresh_athletes()
-                messagebox.showinfo("Success", f"Created athlete folder: {athlete_dir.name}\n\nNext step: Add video clips to the 'clips_in' folder.")
+                messagebox.showinfo("Success", f"Created project: {athlete_dir.name}\n\nNext step: Add video clips to the 'clips_in' folder.")
 
         def cancel():
             dialog.destroy()
@@ -465,7 +467,7 @@ class SoccerHypeGUI:
             self.view_final()
 
     def open_folder(self):
-        """Open athlete folder in file manager"""
+        """Open project folder in file manager"""
         athlete_dir = self.get_selected_athlete()
         if not athlete_dir:
             return
@@ -485,7 +487,7 @@ class SoccerHypeGUI:
             messagebox.showerror("Error", f"Could not open folder: {athlete_dir}")
 
     def mark_plays(self):
-        """Launch mark_play.py for selected athlete"""
+        """Launch mark_play.py for selected project"""
         athlete_dir = self.get_selected_athlete()
         if not athlete_dir:
             return
@@ -555,7 +557,7 @@ class SoccerHypeGUI:
                              "Marking Plays", f"Launching play marking for {athlete_dir.name}")
 
     def reorder_clips(self):
-        """Launch reorder_clips.py for selected athlete"""
+        """Launch reorder_clips.py for selected project"""
         athlete_dir = self.get_selected_athlete()
         if not athlete_dir:
             return
@@ -569,7 +571,7 @@ class SoccerHypeGUI:
                              "Reordering Clips", f"Launching clip reordering for {athlete_dir.name}")
 
     def render_video(self):
-        """Launch render_highlight.py for selected athlete"""
+        """Launch render_highlight.py for selected project"""
         athlete_dir = self.get_selected_athlete()
         if not athlete_dir:
             return
@@ -1277,8 +1279,8 @@ class BatchOperationsDialog:
         """Setup batch operations UI"""
         tk.Label(self.dialog, text="Batch Operations", font=("Segoe UI", 14, "bold")).pack(pady=10)
 
-        # Athlete selection
-        tk.Label(self.dialog, text="Select athletes to process:", font=("Segoe UI", 10)).pack(anchor='w', padx=10)
+        # Project selection
+        tk.Label(self.dialog, text="Select projects to process:", font=("Segoe UI", 10)).pack(anchor='w', padx=10)
 
         list_frame = tk.Frame(self.dialog)
         list_frame.pack(fill='both', expand=True, padx=10, pady=5)
