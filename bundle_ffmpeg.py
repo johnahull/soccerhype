@@ -5,6 +5,7 @@ Downloads and prepares FFmpeg binaries for inclusion in the standalone app
 """
 
 import argparse
+import hashlib
 import os
 import platform
 import shutil
@@ -14,32 +15,61 @@ import urllib.request
 from pathlib import Path
 
 # FFmpeg download URLs (static builds)
+# NOTE: These URLs point to latest releases which change frequently.
+# Checksum verification is optional but recommended for production use.
+# Set FFMPEG_CHECKSUMS below to enable verification.
 FFMPEG_URLS = {
     'windows': 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
     'macos': 'https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip',
     'linux': 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz',
 }
 
+# Optional SHA256 checksums for verification (None = skip verification)
+# These should be updated when pinning to specific FFmpeg versions
+# To generate: sha256sum <downloaded_file>
+FFMPEG_CHECKSUMS = {
+    'windows': None,  # Set to SHA256 hash when pinning versions
+    'macos': None,
+    'linux': None,
+}
+
+# Maximum download size (500MB) to prevent disk exhaustion
+MAX_DOWNLOAD_SIZE = 500 * 1024 * 1024
+
 def detect_platform():
-    """Detect the current platform"""
-    system = platform.system().lower()
-    if system == 'darwin':
+    """Detect the current platform
+
+    Returns normalized platform name: 'windows', 'macos', or 'linux'
+    Uses platform.system() which returns consistent values across Python versions
+    """
+    system = platform.system()
+
+    # Normalize to lowercase for comparison
+    system_lower = system.lower()
+
+    if system_lower == 'darwin':
         return 'macos'
-    elif system == 'windows':
+    elif system_lower == 'windows':
         return 'windows'
-    elif system == 'linux':
+    elif system_lower == 'linux':
         return 'linux'
     else:
         raise RuntimeError(f"Unsupported platform: {system}")
 
 def download_file(url, destination):
-    """Download a file with progress indication"""
+    """Download a file with progress indication and size limit protection"""
     print(f"Downloading from: {url}")
     print(f"Destination: {destination}")
 
     try:
         with urllib.request.urlopen(url) as response:
             total_size = int(response.headers.get('Content-Length') or 0)
+
+            # Check size limit to prevent disk exhaustion
+            if total_size > MAX_DOWNLOAD_SIZE:
+                print(f"\nError: File size ({total_size} bytes) exceeds maximum allowed size ({MAX_DOWNLOAD_SIZE} bytes)")
+                return False
+
             block_size = 8192
             downloaded = 0
 
@@ -53,6 +83,11 @@ def download_file(url, destination):
                     f.write(chunk)
                     downloaded += len(chunk)
 
+                    # Also check downloaded size to catch cases where Content-Length is missing
+                    if downloaded > MAX_DOWNLOAD_SIZE:
+                        print(f"\nError: Downloaded size exceeds maximum allowed size ({MAX_DOWNLOAD_SIZE} bytes)")
+                        return False
+
                     if total_size > 0:
                         percent = (downloaded / total_size) * 100
                         print(f"\rProgress: {percent:.1f}% ({downloaded}/{total_size} bytes)", end='')
@@ -64,21 +99,58 @@ def download_file(url, destination):
         print(f"\nError downloading: {e}")
         return False
 
+def verify_checksum(file_path, expected_checksum):
+    """Verify SHA256 checksum of a file"""
+    if expected_checksum is None:
+        print("Note: Checksum verification skipped (no checksum configured)")
+        return True
+
+    print("Verifying file checksum...")
+    sha256_hash = hashlib.sha256()
+
+    with open(file_path, 'rb') as f:
+        # Read in 64k chunks for memory efficiency
+        for chunk in iter(lambda: f.read(65536), b''):
+            sha256_hash.update(chunk)
+
+    actual_checksum = sha256_hash.hexdigest()
+
+    if actual_checksum.lower() == expected_checksum.lower():
+        print(f"Checksum verified: {actual_checksum}")
+        return True
+    else:
+        print(f"ERROR: Checksum mismatch!")
+        print(f"  Expected: {expected_checksum}")
+        print(f"  Actual:   {actual_checksum}")
+        print(f"\nThis may indicate a corrupted download or security issue.")
+        print(f"Please verify the download source and try again.")
+        return False
+
 def extract_archive(archive_path, extract_dir):
-    """Extract archive based on file type"""
+    """Extract archive based on file type with path traversal protection"""
     print(f"Extracting: {archive_path}")
 
     archive_path = Path(archive_path)
-    extract_dir = Path(extract_dir)
+    extract_dir = Path(extract_dir).resolve()
     extract_dir.mkdir(parents=True, exist_ok=True)
 
     if archive_path.suffix == '.zip':
         import zipfile
         with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+            # Validate each member path to prevent path traversal attacks
+            for member in zip_ref.namelist():
+                member_path = (extract_dir / member).resolve()
+                if not str(member_path).startswith(str(extract_dir)):
+                    raise ValueError(f"Attempted path traversal in archive: {member}")
             zip_ref.extractall(extract_dir)
     elif archive_path.suffix in ['.tar', '.xz', '.gz']:
         import tarfile
         with tarfile.open(archive_path, 'r:*') as tar_ref:
+            # Validate each member path to prevent path traversal attacks
+            for member in tar_ref.getmembers():
+                member_path = (extract_dir / member.name).resolve()
+                if not str(member_path).startswith(str(extract_dir)):
+                    raise ValueError(f"Attempted path traversal in archive: {member.name}")
             tar_ref.extractall(extract_dir)
     else:
         raise ValueError(f"Unsupported archive format: {archive_path.suffix}")
@@ -142,6 +214,12 @@ def bundle_ffmpeg(platform_name, output_dir='binaries'):
 
         # Download FFmpeg
         if not download_file(url, archive_path):
+            return False
+
+        # Verify checksum if configured
+        expected_checksum = FFMPEG_CHECKSUMS.get(platform_name)
+        if not verify_checksum(archive_path, expected_checksum):
+            print("\nChecksum verification failed. Aborting.")
             return False
 
         # Extract archive

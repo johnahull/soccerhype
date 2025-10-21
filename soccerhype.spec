@@ -10,6 +10,9 @@ from pathlib import Path
 block_cipher = None
 
 # Determine platform-specific settings
+# Note: Using sys.platform here (not platform.system()) because PyInstaller
+# is evaluated at build time and sys.platform is more reliable in this context
+# sys.platform values: 'win32', 'darwin', 'linux', etc.
 is_windows = sys.platform.startswith('win')
 is_macos = sys.platform == 'darwin'
 
@@ -81,6 +84,15 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Optional icon files (None if not found)
+icon_file = None
+if is_windows:
+    if Path('icon.ico').exists():
+        icon_file = 'icon.ico'
+else:
+    if Path('icon.icns').exists():
+        icon_file = 'icon.icns'
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -97,7 +109,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='icon.ico' if is_windows else 'icon.icns',  # Add icons if available
+    icon=icon_file,
 )
 
 coll = COLLECT(
@@ -113,10 +125,13 @@ coll = COLLECT(
 
 # macOS app bundle
 if is_macos:
+    # Use icon file if it exists, otherwise None
+    macos_icon = 'icon.icns' if Path('icon.icns').exists() else None
+
     app = BUNDLE(
         coll,
         name='SoccerHype.app',
-        icon='icon.icns',  # Add macOS icon if available
+        icon=macos_icon,
         bundle_identifier='com.soccerhype.app',
         info_plist={
             'NSPrincipalClass': 'NSApplication',
