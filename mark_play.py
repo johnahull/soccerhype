@@ -370,6 +370,7 @@ def main():
     ap.add_argument("--email", type=str, help="Email address")
     ap.add_argument("--phone", type=str, help="Phone number")
     ap.add_argument("--include-intro", action="store_true", help="Include intro screen")
+    ap.add_argument("--intro-media", type=str, help="Path to intro media file (relative to athlete directory)")
     ap.add_argument("--overwrite", action="store_true", help="Overwrite existing project without asking")
 
     args = ap.parse_args()
@@ -420,7 +421,7 @@ def main():
     if gui_mode:
         include_intro = args.include_intro
         player = {}
-        intro_media_path = None  # For GUI mode, skip intro media selection for now
+        intro_media_path = args.intro_media if args.intro_media else None
         if include_intro:
             player["name"] = args.player_name or ""
             player["title"] = args.title or ""

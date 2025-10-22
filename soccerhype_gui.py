@@ -540,6 +540,17 @@ class SoccerHypeGUI:
             if player_data["phone"]:
                 args.extend(["--phone", player_data["phone"]])
 
+        # Add intro media if selected
+        if player_data.get("selected_media"):
+            # Convert to relative path from athlete directory
+            media_path = pathlib.Path(player_data["selected_media"])
+            try:
+                relative_path = str(media_path.relative_to(athlete_dir))
+                args.extend(["--intro-media", relative_path])
+            except ValueError:
+                # If path is not relative to athlete dir, just use the filename
+                args.extend(["--intro-media", media_path.name])
+
         self.run_script_async("mark_play.py", args,
                              "Marking Plays", f"Launching play marking for {athlete_dir.name}")
 
@@ -1169,10 +1180,8 @@ class PlayerInfoDialog:
         if profile_id in self.profile_manager.player_profiles:
             profile = self.profile_manager.player_profiles[profile_id]
 
-            # Don't override the name field if it's already set for this athlete
-            if not self.name_var.get().strip():
-                self.name_var.set(profile.get("name", ""))
-
+            # Load all fields from the profile, including name
+            self.name_var.set(profile.get("name", ""))
             self.title_var.set(profile.get("title", ""))
             self.position_var.set(profile.get("position", ""))
             self.grad_year_var.set(profile.get("grad_year", ""))
