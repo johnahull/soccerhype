@@ -600,7 +600,7 @@ class SoccerHypeGUI:
                              "Rendering Video", f"Rendering highlight video for {athlete_dir.name}")
 
     def upload_youtube(self):
-        """Upload final video to YouTube"""
+        """Open YouTube Studio and copy video metadata to clipboard"""
         athlete_dir = self.get_selected_athlete()
         if not athlete_dir:
             return
@@ -608,19 +608,6 @@ class SoccerHypeGUI:
         final_video = athlete_dir / "output" / "final.mp4"
         if not final_video.exists():
             messagebox.showwarning("No Video", f"Final video not found for {athlete_dir.name}\n\nRender video first.")
-            return
-
-        # Check if client_secrets.json exists
-        client_secrets = pathlib.Path.cwd() / "client_secrets.json"
-        if not client_secrets.exists():
-            result = messagebox.askyesno(
-                "YouTube Setup Required",
-                "YouTube upload requires authentication setup.\n\n"
-                "Would you like to run the setup wizard now?\n\n"
-                "(This will guide you through creating Google Cloud credentials)"
-            )
-            if result:
-                subprocess.Popen([sys.executable, "setup_youtube_auth.py"])
             return
 
         # Load project data for metadata
@@ -631,12 +618,57 @@ class SoccerHypeGUI:
 
         try:
             project_data = json.loads(project_file.read_text())
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not read project file: {e}")
-            return
+            player = project_data.get("player", {})
 
-        # Show upload configuration dialog
-        YouTubeUploadDialog(self.root, athlete_dir, final_video, project_data, self.refresh_athletes)
+            # Generate title and description
+            player_name = player.get("name", "Player")
+            position = player.get("position", "")
+            grad_year = player.get("grad_year", "")
+            club_team = player.get("club_team", "")
+
+            title = f"{player_name} - Soccer Highlights"
+            if grad_year:
+                title += f" | Class of {grad_year}"
+
+            description = f"{player_name} - Soccer Highlight Video\n\n"
+            if position:
+                description += f"Position: {position}\n"
+            if grad_year:
+                description += f"Graduation Year: {grad_year}\n"
+            if club_team:
+                description += f"Club Team: {club_team}\n"
+            description += f"\nVideo location: {final_video}\n"
+            description += "\nCreated with SoccerHype - https://github.com/johnahull/soccerhype"
+
+            # Copy to clipboard
+            try:
+                import pyperclip
+                clipboard_text = f"Title:\n{title}\n\nDescription:\n{description}"
+                pyperclip.copy(clipboard_text)
+                clipboard_msg = "✓ Title and description copied to clipboard!"
+            except ImportError:
+                clipboard_msg = "Install 'pyperclip' for clipboard support: pip install pyperclip"
+
+            # Show info dialog
+            result = messagebox.showinfo(
+                "Upload to YouTube",
+                f"Ready to upload: {final_video.name}\n\n"
+                f"{clipboard_msg}\n\n"
+                f"Steps:\n"
+                f"1. Click OK to open YouTube Studio\n"
+                f"2. Click 'Create' → 'Upload videos'\n"
+                f"3. Select your video file: {final_video}\n"
+                f"4. Paste the title and description from clipboard\n"
+                f"5. Set visibility and publish!\n\n"
+                f"Video location:\n{final_video}"
+            )
+
+            # Open YouTube Studio
+            import webbrowser
+            webbrowser.open("https://studio.youtube.com")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not prepare upload: {e}")
 
     def view_final(self):
         """Open final video in default player"""
@@ -1297,194 +1329,6 @@ class PlayerInfoDialog:
         """Cancel the dialog"""
         self.result = None
         self.dialog.destroy()
-
-class YouTubeUploadDialog:
-    """Dialog for configuring and uploading video to YouTube"""
-
-    def __init__(self, parent, athlete_dir, video_path, project_data, refresh_callback):
-        self.athlete_dir = athlete_dir
-        self.video_path = video_path
-        self.project_data = project_data
-        self.refresh_callback = refresh_callback
-
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Upload to YouTube")
-        self.dialog.geometry("600x500")
-        self.dialog.resizable(False, False)
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
-
-        # Center on parent
-        self.dialog.geometry(f"+{parent.winfo_rootx() + 100}+{parent.winfo_rooty() + 50}")
-
-        self.setup_ui()
-
-    def setup_ui(self):
-        """Setup upload configuration UI"""
-        tk.Label(self.dialog, text="Upload to YouTube", font=("Segoe UI", 14, "bold")).pack(pady=10)
-
-        # Video info
-        info_frame = tk.Frame(self.dialog)
-        info_frame.pack(fill='x', padx=20, pady=5)
-        tk.Label(info_frame, text=f"Video: {self.video_path.name}", font=("Segoe UI", 9)).pack(anchor='w')
-
-        # Form frame
-        form_frame = tk.Frame(self.dialog)
-        form_frame.pack(fill='both', expand=True, padx=20, pady=10)
-
-        # Title
-        tk.Label(form_frame, text="Title:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky='w', pady=5)
-        self.title_var = tk.StringVar()
-
-        # Auto-generate title
-        try:
-            from youtube_uploader import generate_title_from_project
-            default_title = generate_title_from_project(self.project_data)
-        except:
-            player_name = self.project_data.get("player", {}).get("name", "Player")
-            default_title = f"{player_name} - Highlight Video"
-
-        self.title_var.set(default_title)
-        tk.Entry(form_frame, textvariable=self.title_var, font=("Segoe UI", 9), width=50).grid(row=0, column=1, pady=5)
-
-        # Description
-        tk.Label(form_frame, text="Description:", font=("Segoe UI", 10, "bold")).grid(row=1, column=0, sticky='nw', pady=5)
-
-        # Auto-generate description
-        try:
-            from youtube_uploader import generate_description_from_project
-            default_description = generate_description_from_project(self.project_data)
-        except:
-            player_name = self.project_data.get("player", {}).get("name", "Player")
-            default_description = f"{player_name} - Highlight Video\n\nCreated with SoccerHype"
-
-        desc_frame = tk.Frame(form_frame)
-        desc_frame.grid(row=1, column=1, pady=5)
-        self.desc_text = tk.Text(desc_frame, font=("Segoe UI", 9), width=50, height=8)
-        self.desc_text.pack(side='left', fill='both', expand=True)
-        desc_scroll = tk.Scrollbar(desc_frame, command=self.desc_text.yview)
-        desc_scroll.pack(side='right', fill='y')
-        self.desc_text.config(yscrollcommand=desc_scroll.set)
-        self.desc_text.insert('1.0', default_description)
-
-        # Tags
-        tk.Label(form_frame, text="Tags:", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky='w', pady=5)
-        self.tags_var = tk.StringVar()
-
-        # Auto-generate tags
-        tags = ["soccer", "highlights"]
-        position = self.project_data.get("player", {}).get("position", "")
-        grad_year = self.project_data.get("player", {}).get("grad_year", "")
-        if position:
-            tags.append(position.lower())
-        if grad_year:
-            tags.append(f"class of {grad_year}")
-
-        self.tags_var.set(", ".join(tags))
-        tk.Entry(form_frame, textvariable=self.tags_var, font=("Segoe UI", 9), width=50).grid(row=2, column=1, pady=5)
-        tk.Label(form_frame, text="(comma-separated)", font=("Segoe UI", 8), fg="#666").grid(row=3, column=1, sticky='w')
-
-        # Privacy
-        tk.Label(form_frame, text="Privacy:", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky='w', pady=5)
-        self.privacy_var = tk.StringVar(value="unlisted")
-        privacy_frame = tk.Frame(form_frame)
-        privacy_frame.grid(row=4, column=1, sticky='w', pady=5)
-        tk.Radiobutton(privacy_frame, text="Public", variable=self.privacy_var, value="public", font=("Segoe UI", 9)).pack(side='left', padx=5)
-        tk.Radiobutton(privacy_frame, text="Unlisted", variable=self.privacy_var, value="unlisted", font=("Segoe UI", 9)).pack(side='left', padx=5)
-        tk.Radiobutton(privacy_frame, text="Private", variable=self.privacy_var, value="private", font=("Segoe UI", 9)).pack(side='left', padx=5)
-
-        # Progress
-        self.progress_frame = tk.Frame(self.dialog)
-        self.progress_frame.pack(fill='x', padx=20, pady=10)
-        self.progress_label = tk.Label(self.progress_frame, text="", font=("Segoe UI", 9))
-        self.progress_label.pack()
-
-        # Buttons
-        button_frame = tk.Frame(self.dialog)
-        button_frame.pack(fill='x', padx=20, pady=10)
-
-        self.upload_btn = tk.Button(button_frame, text="Upload", command=self.upload,
-                                    bg="#FF0000", fg="white", font=("Segoe UI", 10, "bold"), width=15)
-        self.upload_btn.pack(side='left', padx=(0, 10))
-
-        tk.Button(button_frame, text="Cancel", command=self.dialog.destroy,
-                 font=("Segoe UI", 10), width=15).pack(side='left')
-
-    def upload(self):
-        """Perform the upload"""
-        title = self.title_var.get().strip()
-        if not title:
-            messagebox.showwarning("Missing Title", "Please enter a video title")
-            return
-
-        description = self.desc_text.get('1.0', 'end-1c').strip()
-        tags_str = self.tags_var.get().strip()
-        tags = [t.strip() for t in tags_str.split(",") if t.strip()]
-        privacy = self.privacy_var.get()
-
-        # Disable upload button
-        self.upload_btn.config(state='disabled')
-        self.progress_label.config(text="Authenticating with YouTube...")
-
-        # Run upload in thread
-        def upload_thread():
-            try:
-                from youtube_uploader import YouTubeUploader
-
-                uploader = YouTubeUploader()
-
-                if not uploader.authenticate():
-                    self.dialog.after(0, lambda: self.upload_failed("Authentication failed"))
-                    return
-
-                def progress_callback(uploaded, total):
-                    percent = int(uploaded / total * 100) if total > 0 else 0
-                    self.dialog.after(0, lambda: self.progress_label.config(
-                        text=f"Uploading... {percent}%"
-                    ))
-
-                self.dialog.after(0, lambda: self.progress_label.config(text="Uploading to YouTube..."))
-
-                video_id = uploader.upload_video(
-                    video_path=self.video_path,
-                    title=title,
-                    description=description,
-                    tags=tags,
-                    privacy_status=privacy,
-                    progress_callback=progress_callback
-                )
-
-                if video_id:
-                    video_url = f"https://www.youtube.com/watch?v={video_id}"
-                    self.dialog.after(0, lambda: self.upload_success(video_url))
-                else:
-                    self.dialog.after(0, lambda: self.upload_failed("Upload failed"))
-
-            except Exception as e:
-                self.dialog.after(0, lambda: self.upload_failed(str(e)))
-
-        threading.Thread(target=upload_thread, daemon=True).start()
-
-    def upload_success(self, video_url):
-        """Handle successful upload"""
-        self.progress_label.config(text="✅ Upload successful!")
-        result = messagebox.showinfo(
-            "Upload Successful",
-            f"Video uploaded successfully!\n\nURL: {video_url}\n\nWould you like to open it in your browser?",
-            type=messagebox.OKCANCEL
-        )
-
-        if result == 'ok':
-            import webbrowser
-            webbrowser.open(video_url)
-
-        self.dialog.destroy()
-
-    def upload_failed(self, error_msg):
-        """Handle failed upload"""
-        self.progress_label.config(text="❌ Upload failed")
-        self.upload_btn.config(state='normal')
-        messagebox.showerror("Upload Failed", f"Failed to upload video:\n\n{error_msg}")
 
 class BatchOperationsDialog:
     """Dialog for batch operations on multiple athletes"""
