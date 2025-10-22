@@ -201,8 +201,10 @@ class ReorderGUI(tk.Tk):
         tk.Button(btns, text="▼ Down", command=self.move_down).grid(row=0, column=1, padx=2)
         tk.Button(btns, text="Sort by Filename", command=self.sort_by_name).grid(row=0, column=2, padx=8)
         tk.Button(btns, text="Preview", command=self.preview_selected).grid(row=0, column=3, padx=2)
-        tk.Button(btns, text="Save Order", command=self.save_order).grid(row=0, column=4, padx=12)
-        tk.Button(btns, text="Close", command=self.destroy).grid(row=0, column=5, padx=2)
+        remove_btn = tk.Button(btns, text="❌ Remove", command=self.remove_selected, fg="red")
+        remove_btn.grid(row=0, column=4, padx=2)
+        tk.Button(btns, text="Save Order", command=self.save_order).grid(row=0, column=5, padx=12)
+        tk.Button(btns, text="Close", command=self.destroy).grid(row=0, column=6, padx=2)
 
         # Preview pane
         tk.Label(right, text="Preview:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w")
@@ -217,6 +219,8 @@ class ReorderGUI(tk.Tk):
         # Shortcuts
         self.bind("<Control-Up>", lambda e: self.move_up())
         self.bind("<Control-Down>", lambda e: self.move_down())
+        self.bind("<Delete>", lambda e: self.remove_selected())
+        self.bind("<BackSpace>", lambda e: self.remove_selected())  # macOS compatibility
 
     def current_selection(self) -> Optional[int]:
         sel = self.listbox.curselection()
@@ -272,6 +276,48 @@ class ReorderGUI(tk.Tk):
         self.listbox.delete(0, tk.END)
         for name, _ in pairs:
             self.listbox.insert(tk.END, name)
+
+    def remove_selected(self):
+        """Remove selected clip from the list with confirmation"""
+        i = self.current_selection()
+        if i is None:
+            messagebox.showwarning("No Selection", "Please select a clip to remove.")
+            return
+
+        # Validate bounds to prevent IndexError
+        if i >= len(self.clips):
+            messagebox.showerror("Selection Error", "Selected item is out of range.")
+            return
+
+        clip_name = self.listbox.get(i)
+
+        # Confirm deletion
+        result = messagebox.askyesno(
+            "Confirm Removal",
+            f"Remove clip from list?\n\n{clip_name}\n\n"
+            "This will remove it from the project (when you click 'Save Order').\n"
+            "The original video file will not be deleted.",
+            icon='warning'
+        )
+
+        if not result:
+            return
+
+        # Remove from data and UI
+        del self.clips[i]
+        self.listbox.delete(i)
+
+        # Update selection to next item (or previous if last item was removed)
+        if len(self.clips) > 0:
+            new_index = min(i, len(self.clips) - 1)
+            self.listbox.selection_set(new_index)
+            self.listbox.activate(new_index)
+            self.on_selection_change()
+        else:
+            # No clips left
+            self.preview_area.show_status("No clips remaining\n\nClick 'Close' or add more clips to mark_play.py")
+
+        messagebox.showinfo("Removed", f"Clip removed from list.\n\nClick 'Save Order' to save changes.")
 
     def preview_selected(self):
         """Open selected clip in system default video player with comprehensive error handling"""
