@@ -252,6 +252,7 @@ class ReorderGUI(tk.Tk):
         self.listbox.delete(i)
         self.listbox.insert(i-1, txt)
         self.listbox.selection_set(i-1)
+        self.on_selection_change()  # Update preview area
 
     def move_down(self):
         i = self.current_selection()
@@ -261,6 +262,7 @@ class ReorderGUI(tk.Tk):
         self.listbox.delete(i)
         self.listbox.insert(i+1, txt)
         self.listbox.selection_set(i+1)
+        self.on_selection_change()  # Update preview area
 
     def sort_by_name(self):
         pairs: List[Tuple[str, dict]] = []
@@ -272,6 +274,10 @@ class ReorderGUI(tk.Tk):
         self.listbox.delete(0, tk.END)
         for name, _ in pairs:
             self.listbox.insert(tk.END, name)
+        # Select first item after sorting
+        if self.clips:
+            self.listbox.selection_set(0)
+            self.on_selection_change()
 
     def preview_selected(self):
         """Open selected clip in system default video player with comprehensive error handling"""
