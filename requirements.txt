@@ -14,3 +14,8 @@ pytest
 # For standalone application packaging
 pyinstaller>=5.0
 
+# For YouTube upload functionality
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+

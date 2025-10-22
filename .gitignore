@@ -83,6 +83,10 @@ sample_*.mp4
 # Player database containing PII - exclude from version control
 players_database.json
 
+# YouTube API credentials - exclude from version control
+client_secrets.json
+*-oauth2.json
+
 # Large files and media (>50MB) - consider using Git LFS
 *.mp4
 *.mov

@@ -94,6 +94,26 @@ python batch_render.py
 python batch_render.py --names "Jane Smith" "John Doe" --force --jobs 2
 ```
 
+**6. Upload to YouTube (optional):**
+```bash
+# First-time setup - configure OAuth 2.0 credentials
+python setup_youtube_auth.py
+
+# Upload after rendering (automatically generates title/description from project.json)
+python render_highlight.py --dir athletes/athlete_name --upload-youtube
+
+# Upload with custom privacy setting
+python render_highlight.py --dir athletes/athlete_name --upload-youtube --youtube-privacy public
+
+# Upload existing video
+python youtube_uploader.py athletes/athlete_name/output/final.mp4 --project athletes/athlete_name/project.json
+
+# Batch upload
+python batch_render.py --upload-youtube --youtube-privacy unlisted
+
+# GUI: Use "Upload to YouTube" button in soccerhype_gui.py
+```
+
 ## Project Architecture
 
 **Directory Structure:**
@@ -218,6 +238,83 @@ The standalone application can bundle FFmpeg or use system FFmpeg. The `ffmpeg_u
 - Virtual environment activation required: `source .venv/bin/activate`
 - Dependencies managed via requirements.txt and setup.sh
 
+## YouTube Upload Feature
+
+**Overview:**
+SoccerHype supports optional YouTube uploads via the YouTube Data API v3. Videos can be uploaded with automatically generated metadata from project.json or custom settings.
+
+**Setup (One-Time):**
+
+1. **Run the setup wizard:**
+   ```bash
+   python setup_youtube_auth.py
+   ```
+
+2. **Follow the guided steps:**
+   - Create a Google Cloud project
+   - Enable YouTube Data API v3
+   - Configure OAuth consent screen
+   - Create OAuth 2.0 desktop client credentials
+   - Download `client_secrets.json` to project directory
+   - Complete authentication flow
+
+3. **Files created:**
+   - `client_secrets.json` - OAuth credentials (excluded from git)
+   - `~/.soccerhype/youtube-oauth2.json` - Auth tokens (outside repo)
+
+**Usage:**
+
+*Command Line:*
+```bash
+# Upload after rendering
+python render_highlight.py --dir athletes/john_doe --upload-youtube
+
+# Custom privacy (public/unlisted/private)
+python render_highlight.py --dir athletes/john_doe --upload-youtube --youtube-privacy public
+
+# Upload existing video with auto-generated metadata
+python youtube_uploader.py athletes/john_doe/output/final.mp4 --project athletes/john_doe/project.json
+
+# Upload with custom settings
+python youtube_uploader.py final.mp4 --title "Custom Title" --privacy unlisted
+
+# Batch upload all athletes
+python batch_render.py --upload-youtube --youtube-privacy unlisted
+```
+
+*GUI:*
+1. Render video normally
+2. Click "Upload to YouTube" button
+3. Review/edit auto-generated title, description, tags
+4. Select privacy setting (public/unlisted/private)
+5. Click "Upload"
+
+**Auto-Generated Metadata:**
+- **Title**: `{Player Name} - Class of {Year} - {Position} - Highlight Video`
+- **Description**: Player stats from project.json + "Created with SoccerHype"
+- **Tags**: "soccer", "highlights", position, "class of {year}"
+- **Category**: 17 (Sports)
+
+**Security Notes:**
+- `client_secrets.json` is in `.gitignore` (don't commit!)
+- OAuth tokens stored in `~/.soccerhype/` (outside repo)
+- Uses minimal scope: `https://www.googleapis.com/auth/youtube.upload`
+- First upload requires browser authentication
+- Subsequent uploads use saved tokens
+
+**Quota Limits:**
+- Default quota: 10,000 units/day
+- Video upload: ~1,600 units each
+- ~6 uploads per day on default quota
+- Request quota increase via Google Cloud Console if needed
+
+**Troubleshooting:**
+- "Client secrets not found": Run `python setup_youtube_auth.py`
+- "Authentication failed": Delete `~/.soccerhype/youtube-oauth2.json` and re-authenticate
+- "App not verified" warning: Click "Advanced" → "Go to [App Name] (unsafe)" (normal for test apps)
+- Upload stalls: Check internet connection and retry
+- Quota exceeded: Wait until next day or request quota increase
+
 ## Troubleshooting
 
 **Common issues:**
@@ -226,6 +323,7 @@ The standalone application can bundle FFmpeg or use system FFmpeg. The `ffmpeg_u
 - Performance issues: Use `--jobs 1` for batch processing on limited hardware
 - Preview not working: Ensure system has default video player (VLC, Media Player, etc.)
 - Large file warnings: Consider using Git LFS for video files >50MB
+- YouTube upload errors: See YouTube Upload Feature section above
 
 ## Security Guidelines for Contributors
 

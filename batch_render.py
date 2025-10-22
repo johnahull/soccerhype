@@ -26,10 +26,13 @@ def should_skip(ath_dir: pathlib.Path, force: bool) -> bool:
         return True
     return False
 
-def render_one(ath_dir: pathlib.Path, keep_work: bool, python: str) -> tuple[str, int]:
+def render_one(ath_dir: pathlib.Path, keep_work: bool, python: str, upload_youtube: bool, youtube_privacy: str) -> tuple[str, int]:
     cmd = [python, "render_highlight.py", "--dir", str(ath_dir)]
     if keep_work:
         cmd.append("--keep-work")
+    if upload_youtube:
+        cmd.append("--upload-youtube")
+        cmd.extend(["--youtube-privacy", youtube_privacy])
     print("•", " ".join(cmd))
     proc = subprocess.run(cmd)
     return (ath_dir.name, proc.returncode)
@@ -42,6 +45,9 @@ def main():
     ap.add_argument("--force", action="store_true", help="Re-render even if final.mp4 exists")
     ap.add_argument("--dry-run", action="store_true", help="List targets without running")
     ap.add_argument("--python", default="python", help="Python executable to run render_highlight.py")
+    ap.add_argument("--upload-youtube", action="store_true", help="Upload each video to YouTube after rendering")
+    ap.add_argument("--youtube-privacy", type=str, choices=["public", "unlisted", "private"],
+                    default="unlisted", help="YouTube privacy status (default: unlisted)")
     args = ap.parse_args()
 
     if not ATHLETES.exists():
@@ -70,7 +76,7 @@ def main():
         # Sequential (safest, uses all cores per ffmpeg job)
         failures = 0
         for a in queue:
-            name, rc = render_one(a, args.keep_work, args.python)
+            name, rc = render_one(a, args.keep_work, args.python, args.upload_youtube, args.youtube_privacy)
             if rc != 0:
                 print(f"❌ Failed: {name} (rc={rc})")
                 failures += 1
@@ -79,7 +85,7 @@ def main():
         # Parallel (be mindful of CPU/GPU/IO load)
         failures = 0
         with ThreadPoolExecutor(max_workers=args.jobs) as ex:
-            futs = [ex.submit(render_one, a, args.keep_work, args.python) for a in queue]
+            futs = [ex.submit(render_one, a, args.keep_work, args.python, args.upload_youtube, args.youtube_privacy) for a in queue]
             for fut in as_completed(futs):
                 name, rc = fut.result()
                 if rc == 0:

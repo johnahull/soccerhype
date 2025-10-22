@@ -600,6 +600,9 @@ def main():
     ap.add_argument("--dir", type=str, help="Full path to athlete folder")
     ap.add_argument("--keep-work", action="store_true")
     ap.add_argument("--reset-intro", action="store_true", help="Reset intro media selection and choose again")
+    ap.add_argument("--upload-youtube", action="store_true", help="Upload final video to YouTube after rendering")
+    ap.add_argument("--youtube-privacy", type=str, choices=["public", "unlisted", "private"],
+                    default="unlisted", help="YouTube privacy status (default: unlisted)")
     args = ap.parse_args()
 
     if args.dir:
@@ -721,6 +724,50 @@ def main():
     print(f"\n✅ Final video saved to {final.resolve()}")
     if args.keep_work:
         print(f"ℹ️ Kept intermediates in {work}")
+
+    # Upload to YouTube if requested
+    if args.upload_youtube:
+        try:
+            from youtube_uploader import (
+                YouTubeUploader,
+                generate_title_from_project,
+                generate_description_from_project,
+            )
+
+            print("\n📤 Uploading to YouTube...")
+            uploader = YouTubeUploader()
+
+            if uploader.authenticate():
+                title = generate_title_from_project(data)
+                description = generate_description_from_project(data)
+
+                # Generate tags from player data
+                tags = ["soccer", "highlights"]
+                if data.get("player", {}).get("position"):
+                    tags.append(data["player"]["position"].lower())
+                if data.get("player", {}).get("grad_year"):
+                    tags.append(f"class of {data['player']['grad_year']}")
+
+                video_id = uploader.upload_video(
+                    video_path=final,
+                    title=title,
+                    description=description,
+                    tags=tags,
+                    privacy_status=args.youtube_privacy,
+                )
+
+                if not video_id:
+                    print("⚠️  YouTube upload failed, but video was rendered successfully")
+            else:
+                print("⚠️  YouTube authentication failed. Video was rendered successfully.")
+                print("   Run 'python setup_youtube_auth.py' to configure YouTube uploads.")
+
+        except ImportError:
+            print("\n⚠️  YouTube upload module not available.")
+            print("   Install dependencies: pip install -r requirements.txt")
+        except Exception as e:
+            print(f"\n⚠️  YouTube upload error: {e}")
+            print("   Video was rendered successfully.")
 
 if __name__ == "__main__":
     main()
