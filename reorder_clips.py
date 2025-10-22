@@ -181,6 +181,7 @@ class ReorderGUI(tk.Tk):
         self.base = base_dir
         self.project = load_project(self.base)
         self.clips: List[dict] = list(self.project.get("clips", []))
+        self.is_modified = False  # Track unsaved changes
 
         # layout
         self.columnconfigure(0, weight=0)
@@ -208,10 +209,10 @@ class ReorderGUI(tk.Tk):
         tk.Button(btns, text="▼ Down", command=self.move_down).grid(row=0, column=1, padx=2)
         tk.Button(btns, text="Sort by Filename", command=self.sort_by_name).grid(row=0, column=2, padx=8)
         tk.Button(btns, text="Preview", command=self.preview_selected).grid(row=0, column=3, padx=2)
-        remove_btn = tk.Button(btns, text="❌ Remove", command=self.remove_selected, fg="red")
+        remove_btn = tk.Button(btns, text="Remove", command=self.remove_selected, fg="red")
         remove_btn.grid(row=0, column=4, padx=2)
         tk.Button(btns, text="Save Order", command=self.save_order).grid(row=0, column=5, padx=12)
-        tk.Button(btns, text="Close", command=self.destroy).grid(row=0, column=6, padx=2)
+        tk.Button(btns, text="Close", command=self.on_closing).grid(row=0, column=6, padx=2)
 
         # Preview pane
         tk.Label(right, text="Preview:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w")
@@ -229,6 +230,9 @@ class ReorderGUI(tk.Tk):
         self.bind("<Delete>", lambda e: self.remove_selected())
         self.bind("<BackSpace>", lambda e: self.remove_selected())  # macOS compatibility
 
+        # Handle window close to warn about unsaved changes
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
     def current_selection(self) -> Optional[int]:
         sel = self.listbox.curselection()
         return sel[0] if sel else None
@@ -237,9 +241,20 @@ class ReorderGUI(tk.Tk):
         """Handle reordering of clips data when listbox items are dragged"""
         if old_index == new_index:
             return
-        # Move the clip in the data list to match the listbox
-        clip = self.clips.pop(old_index)
-        self.clips.insert(new_index, clip)
+
+        # Validate indices are within range to prevent IndexError
+        if not (0 <= old_index < len(self.clips) and 0 <= new_index < len(self.clips)):
+            return
+
+        try:
+            # Move the clip in the data list to match the listbox
+            clip = self.clips.pop(old_index)
+            self.clips.insert(new_index, clip)
+            self.is_modified = True
+            self.update_title()
+        except (IndexError, ValueError):
+            # Handle edge cases during rapid drag operations
+            pass
 
     def on_selection_change(self, event=None):
         """Handle listbox selection change to show clip info"""
@@ -271,6 +286,8 @@ class ReorderGUI(tk.Tk):
         self.listbox.delete(i)
         self.listbox.insert(i-1, txt)
         self.listbox.selection_set(i-1)
+        self.is_modified = True
+        self.update_title()
 
     def move_down(self):
         i = self.current_selection()
@@ -280,6 +297,8 @@ class ReorderGUI(tk.Tk):
         self.listbox.delete(i)
         self.listbox.insert(i+1, txt)
         self.listbox.selection_set(i+1)
+        self.is_modified = True
+        self.update_title()
 
     def sort_by_name(self):
         pairs: List[Tuple[str, dict]] = []
@@ -291,6 +310,8 @@ class ReorderGUI(tk.Tk):
         self.listbox.delete(0, tk.END)
         for name, _ in pairs:
             self.listbox.insert(tk.END, name)
+        self.is_modified = True
+        self.update_title()
 
     def remove_selected(self):
         """Remove selected clip from the list with confirmation"""
@@ -321,6 +342,8 @@ class ReorderGUI(tk.Tk):
         # Remove from data and UI
         del self.clips[i]
         self.listbox.delete(i)
+        self.is_modified = True
+        self.update_title()
 
         # Update selection to next item (or previous if last item was removed)
         if len(self.clips) > 0:
@@ -331,8 +354,6 @@ class ReorderGUI(tk.Tk):
         else:
             # No clips left
             self.preview_area.show_status("No clips remaining\n\nClick 'Close' or add more clips to mark_play.py")
-
-        messagebox.showinfo("Removed", f"Clip removed from list.\n\nClick 'Save Order' to save changes.")
 
     def preview_selected(self):
         """Open selected clip in system default video player with comprehensive error handling"""
@@ -461,7 +482,31 @@ class ReorderGUI(tk.Tk):
     def save_order(self):
         self.project["clips"] = self.clips
         pj = save_project(self.base, self.project)
+        self.is_modified = False
+        self.update_title()
         messagebox.showinfo("Saved", f"Order saved to:\n{pj}\n\nNow run render_highlight.py.")
+
+    def update_title(self):
+        """Update window title to reflect unsaved changes"""
+        title = f"Reorder Clips – {self.base.name}"
+        if self.is_modified:
+            title += " *"
+        self.title(title)
+
+    def on_closing(self):
+        """Handle window close event with unsaved changes warning"""
+        if self.is_modified:
+            result = messagebox.askyesnocancel(
+                "Unsaved Changes",
+                "You have unsaved changes.\n\n"
+                "Do you want to save before closing?",
+                icon='warning'
+            )
+            if result is None:  # Cancel
+                return
+            elif result:  # Yes, save
+                self.save_order()
+        self.destroy()
 
 def main():
     ap = argparse.ArgumentParser(description="GUI to reorder clips with playback preview")
