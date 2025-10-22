@@ -628,8 +628,9 @@ def main():
     
     # Handle intro media selection if intro is enabled
     if include_intro:
-        # Check if intro media has already been selected (and not reset)
-        if "intro_media" not in data or args.reset_intro:
+        # Check if intro media selection is needed (missing key or reset requested)
+        # Note: null value means "no intro media" was explicitly chosen, don't re-prompt
+        if args.reset_intro or ("intro_media" not in data):
             print(f"\n🎬 Resetting intro media selection for {base.name}")
             
             # Check for intro media files

@@ -579,6 +579,19 @@ class SoccerHypeGUI:
             messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nMark plays first.")
             return
 
+        # Check if final video already exists
+        final_video = athlete_dir / "output" / "final.mp4"
+        if final_video.exists():
+            result = messagebox.askyesno(
+                "Re-render Video",
+                f"A rendered video already exists for {athlete_dir.name}.\n\n"
+                "Do you want to render it again?\n\n"
+                "This will overwrite the existing video.",
+                icon='question'
+            )
+            if not result:
+                return
+
         self.run_script_async("render_highlight.py", ["--dir", str(athlete_dir)],
                              "Rendering Video", f"Rendering highlight video for {athlete_dir.name}")
 
@@ -1095,11 +1108,20 @@ class PlayerInfoDialog:
                 # Handle case where media path is not relative to athlete dir
                 intro_media = str(media_path.name) if media_path.exists() else None
 
+        # Preserve existing clips if project already exists
+        existing_clips = []
+        if project_path.exists():
+            try:
+                existing_data = json.loads(project_path.read_text())
+                existing_clips = existing_data.get("clips", [])
+            except (IOError, json.JSONDecodeError):
+                pass  # If we can't read existing file, start fresh
+
         project_data = {
             "player": player_data,
             "include_intro": self.include_intro_var.get(),
             "intro_media": intro_media,
-            "clips": []
+            "clips": existing_clips  # Preserve existing clips
         }
 
         try:
