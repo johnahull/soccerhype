@@ -143,11 +143,12 @@ class PreviewArea(tk.Frame):
 
 # ---------- drag-and-drop listbox ----------
 class DragListbox(tk.Listbox):
-    def __init__(self, master, **kw):
+    def __init__(self, master, on_reorder=None, **kw):
         super().__init__(master, selectmode=tk.SINGLE, activestyle="dotbox", **kw)
         self.bind("<Button-1>", self.set_current)
         self.bind("<B1-Motion>", self.shift_selection)
         self.curIndex = None
+        self.on_reorder = on_reorder  # Callback when items are reordered
 
     def set_current(self, event):
         self.curIndex = self.nearest(event.y)
@@ -156,12 +157,18 @@ class DragListbox(tk.Listbox):
         i = self.nearest(event.y)
         if self.curIndex is None or i == self.curIndex:
             return
+        old_index = self.curIndex
         item = self.get(self.curIndex)
         self.delete(self.curIndex)
         self.insert(i, item)
         self.selection_clear(0, tk.END)
         self.selection_set(i)
         self.curIndex = i
+        # Notify parent about reordering
+        if self.on_reorder:
+            self.on_reorder(old_index, i)
+        # Trigger selection change event to update internal state
+        self.event_generate("<<ListboxSelect>>")
 
 # ---------- main GUI ----------
 class ReorderGUI(tk.Tk):
@@ -188,7 +195,7 @@ class ReorderGUI(tk.Tk):
         right.columnconfigure(0, weight=1)
 
         tk.Label(left, text="Clips (drag to reorder):", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        self.listbox = DragListbox(left, width=40, height=24)
+        self.listbox = DragListbox(left, on_reorder=self.handle_drag_reorder, width=40, height=24)
         self.listbox.pack(fill="y", expand=False)
 
         for c in self.clips:
@@ -225,6 +232,14 @@ class ReorderGUI(tk.Tk):
     def current_selection(self) -> Optional[int]:
         sel = self.listbox.curselection()
         return sel[0] if sel else None
+
+    def handle_drag_reorder(self, old_index: int, new_index: int):
+        """Handle reordering of clips data when listbox items are dragged"""
+        if old_index == new_index:
+            return
+        # Move the clip in the data list to match the listbox
+        clip = self.clips.pop(old_index)
+        self.clips.insert(new_index, clip)
 
     def on_selection_change(self, event=None):
         """Handle listbox selection change to show clip info"""
