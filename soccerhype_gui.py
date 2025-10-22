@@ -93,9 +93,20 @@ class AthleteManager:
             has_project = project_file.exists()
             has_final = final_video.exists()
 
+            # Check if profile exists (project.json with player name)
+            has_profile = False
+            if has_project:
+                try:
+                    import json
+                    project_data = json.loads(project_file.read_text())
+                    has_profile = bool(project_data.get("player", {}).get("name", "").strip())
+                except (IOError, json.JSONDecodeError):
+                    pass
+
             return {
                 "has_clips": has_clips,
                 "has_project": has_project,
+                "has_profile": has_profile,
                 "has_final": has_final,
                 "needs_marking": has_clips and not has_project,
                 "needs_rendering": has_project and not has_final
@@ -113,9 +124,20 @@ class AthleteManager:
             has_project = project_file.exists()
             has_final = final_video.exists()
 
+            # Check if profile exists (project.json with player name)
+            has_profile = False
+            if has_project:
+                try:
+                    import json
+                    project_data = json.loads(project_file.read_text())
+                    has_profile = bool(project_data.get("player", {}).get("name", "").strip())
+                except (IOError, json.JSONDecodeError):
+                    pass
+
             return {
                 "has_clips": has_clips,
                 "has_project": has_project,
+                "has_profile": has_profile,
                 "has_final": has_final,
                 "needs_marking": has_clips and not has_project,
                 "needs_rendering": has_project and not has_final
@@ -124,6 +146,7 @@ class AthleteManager:
             return {
                 "has_clips": False,
                 "has_project": False,
+                "has_profile": False,
                 "has_final": False,
                 "needs_marking": False,
                 "needs_rendering": False
@@ -298,18 +321,20 @@ class SoccerHypeGUI:
         tk.Label(list_frame, text="Athletes", font=("Segoe UI", 12, "bold")).pack(anchor='w')
 
         # Treeview for athletes with status
-        columns = ("Name", "Status", "Clips", "Marked", "Rendered")
+        columns = ("Name", "Status", "Profile", "Clips", "Marked", "Rendered")
         self.athlete_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=15)
 
         # Configure columns
         self.athlete_tree.heading("Name", text="Athlete Name")
         self.athlete_tree.heading("Status", text="Workflow Status")
+        self.athlete_tree.heading("Profile", text="Has Profile")
         self.athlete_tree.heading("Clips", text="Has Clips")
         self.athlete_tree.heading("Marked", text="Clips Marked")
         self.athlete_tree.heading("Rendered", text="Final Video")
 
         self.athlete_tree.column("Name", width=200)
         self.athlete_tree.column("Status", width=150)
+        self.athlete_tree.column("Profile", width=80)
         self.athlete_tree.column("Clips", width=80)
         self.athlete_tree.column("Marked", width=80)
         self.athlete_tree.column("Rendered", width=80)
@@ -329,6 +354,8 @@ class SoccerHypeGUI:
         action_frame.pack(fill='x', pady=(10, 0))
 
         tk.Button(action_frame, text="Open Folder", command=self.open_folder,
+                 font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
+        tk.Button(action_frame, text="Set Profile", command=self.set_profile,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
         tk.Button(action_frame, text="Mark Plays", command=self.mark_plays,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
@@ -358,7 +385,7 @@ class SoccerHypeGUI:
         athletes = self.athlete_manager.discover_athletes()
         if not athletes:
             # Show helpful message when no athletes exist
-            self.athlete_tree.insert("", 'end', values=("No athletes found", "Click 'New Athlete' to get started", "", "", ""))
+            self.athlete_tree.insert("", 'end', values=("No athletes found", "Click 'New Athlete' to get started", "", "", "", ""))
             return
 
         for athlete_dir in athletes:
@@ -367,6 +394,8 @@ class SoccerHypeGUI:
             # Determine workflow status
             if not status["has_clips"]:
                 workflow_status = "Needs clips"
+            elif not status["has_profile"]:
+                workflow_status = "Needs profile"
             elif status["needs_marking"]:
                 workflow_status = "Ready to mark"
             elif status["needs_rendering"]:
@@ -377,6 +406,7 @@ class SoccerHypeGUI:
                 workflow_status = "Unknown"
 
             # Status indicators
+            profile_status = "✓" if status["has_profile"] else "✗"
             clips_status = "✓" if status["has_clips"] else "✗"
             marked_status = "✓" if status["has_project"] else "✗"
             rendered_status = "✓" if status["has_final"] else "✗"
@@ -384,6 +414,7 @@ class SoccerHypeGUI:
             self.athlete_tree.insert("", 'end', values=(
                 athlete_dir.name,
                 workflow_status,
+                profile_status,
                 clips_status,
                 marked_status,
                 rendered_status
@@ -484,15 +515,10 @@ class SoccerHypeGUI:
         except (subprocess.CalledProcessError, FileNotFoundError):
             messagebox.showerror("Error", f"Could not open folder: {athlete_dir}")
 
-    def mark_plays(self):
-        """Launch mark_play.py for selected athlete"""
+    def set_profile(self):
+        """Set player profile information for selected athlete"""
         athlete_dir = self.get_selected_athlete()
         if not athlete_dir:
-            return
-
-        status = self.athlete_manager.get_athlete_status(athlete_dir)
-        if not status["has_clips"]:
-            messagebox.showwarning("No Clips", f"No clips found in {athlete_dir.name}/clips_in/\n\nAdd video clips first.")
             return
 
         # Check if project already exists
@@ -506,50 +532,137 @@ class SoccerHypeGUI:
             return
 
         if dialog.result == "save_only":
-            # User chose to save info only, don't proceed with marking
+            # Profile was saved, refresh the list
             self.refresh_athletes()
             return
 
+        # If user clicked "Continue to Mark Plays", save profile and launch mark_plays
         player_data = dialog.result
+
+        # Save profile to project.json first
+        import json
+        player_dict = {
+            "name": player_data.get("name", ""),
+            "title": player_data.get("title", ""),
+            "position": player_data.get("position", ""),
+            "grad_year": player_data.get("grad_year", ""),
+            "club_team": player_data.get("club_team", ""),
+            "high_school": player_data.get("high_school", ""),
+            "height_weight": player_data.get("height_weight", ""),
+            "gpa": player_data.get("gpa", ""),
+            "email": player_data.get("email", ""),
+            "phone": player_data.get("phone", ""),
+        }
+
+        # Handle intro media
+        selected_media_path = player_data.get("selected_media")
+        intro_media = None
+        if selected_media_path:
+            media_path = pathlib.Path(selected_media_path)
+            try:
+                intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
+            except ValueError:
+                intro_media = str(media_path.name) if media_path.exists() else None
+
+        # Preserve existing clips if project already exists
+        existing_clips = []
+        project_path = athlete_dir / "project.json"
+        if project_path.exists():
+            try:
+                existing_data = json.loads(project_path.read_text())
+                existing_clips = existing_data.get("clips", [])
+            except (IOError, json.JSONDecodeError):
+                pass
+
+        project_data = {
+            "player": player_dict,
+            "include_intro": player_data.get("include_intro", True),
+            "intro_media": intro_media,
+            "clips": existing_clips
+        }
+
+        try:
+            # Ensure the athlete directory exists
+            athlete_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write atomically using temp file
+            import tempfile
+            temp_fd, temp_path = tempfile.mkstemp(dir=athlete_dir, prefix=".project_", suffix=".json.tmp")
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    json.dump(project_data, f, indent=2)
+                os.replace(temp_path, project_path)
+            except:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                raise
+
+            messagebox.showinfo("Success", f"Profile saved for {player_dict['name']}")
+            self.refresh_athletes()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save profile: {e}")
+
+    def mark_plays(self):
+        """Launch mark_play.py for selected athlete"""
+        athlete_dir = self.get_selected_athlete()
+        if not athlete_dir:
+            return
+
+        status = self.athlete_manager.get_athlete_status(athlete_dir)
+        if not status["has_clips"]:
+            messagebox.showwarning("No Clips", f"No clips found in {athlete_dir.name}/clips_in/\n\nAdd video clips first.")
+            return
+
+        # Check if profile exists
+        if not status["has_profile"]:
+            messagebox.showwarning("No Profile",
+                                 f"No player profile found for {athlete_dir.name}\n\n"
+                                 "Please click 'Set Profile' first to enter player information.")
+            return
+
+        # Load existing profile data from project.json
+        import json
+        project_path = athlete_dir / "project.json"
+        try:
+            project_data = json.loads(project_path.read_text())
+            player_data = project_data.get("player", {})
+            include_intro = project_data.get("include_intro", True)
+            intro_media = project_data.get("intro_media")
+        except (IOError, json.JSONDecodeError) as e:
+            messagebox.showerror("Error", f"Failed to read profile: {e}")
+            return
 
         # Build command line arguments
         args = ["--dir", str(athlete_dir), "--overwrite"]
 
-        if player_data["include_intro"]:
+        if include_intro:
             args.append("--include-intro")
 
             # Add player information arguments
-            if player_data["name"]:
+            if player_data.get("name"):
                 args.extend(["--player-name", player_data["name"]])
-            if player_data["title"]:
+            if player_data.get("title"):
                 args.extend(["--title", player_data["title"]])
-            if player_data["position"]:
+            if player_data.get("position"):
                 args.extend(["--position", player_data["position"]])
-            if player_data["grad_year"]:
+            if player_data.get("grad_year"):
                 args.extend(["--grad-year", player_data["grad_year"]])
-            if player_data["club_team"]:
+            if player_data.get("club_team"):
                 args.extend(["--club-team", player_data["club_team"]])
-            if player_data["high_school"]:
+            if player_data.get("high_school"):
                 args.extend(["--high-school", player_data["high_school"]])
-            if player_data["height_weight"]:
+            if player_data.get("height_weight"):
                 args.extend(["--height-weight", player_data["height_weight"]])
-            if player_data["gpa"]:
+            if player_data.get("gpa"):
                 args.extend(["--gpa", player_data["gpa"]])
-            if player_data["email"]:
+            if player_data.get("email"):
                 args.extend(["--email", player_data["email"]])
-            if player_data["phone"]:
+            if player_data.get("phone"):
                 args.extend(["--phone", player_data["phone"]])
 
-        # Add intro media if selected
-        if player_data.get("selected_media"):
-            # Convert to relative path from athlete directory
-            media_path = pathlib.Path(player_data["selected_media"])
-            try:
-                relative_path = str(media_path.relative_to(athlete_dir))
-                args.extend(["--intro-media", relative_path])
-            except ValueError:
-                # If path is not relative to athlete dir, just use the filename
-                args.extend(["--intro-media", media_path.name])
+        # Add intro media if present
+        if intro_media:
+            args.extend(["--intro-media", intro_media])
 
         self.run_script_async("mark_play.py", args,
                              "Marking Plays", f"Launching play marking for {athlete_dir.name}")
