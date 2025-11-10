@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 John Hull
+# Licensed under the MIT License - see LICENSE file
 """
 Tests for bundle_ffmpeg module
 Tests FFmpeg bundling and download functionality

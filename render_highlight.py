@@ -1,3 +1,5 @@
+# Copyright (c) 2025 John Hull
+# Licensed under the MIT License - see LICENSE file
 ##!/usr/bin/env python3
 # render_highlight.py
 # Multi-athlete renderer: choose athlete folder and render audio-free highlights.

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 John Hull
+# Licensed under the MIT License - see LICENSE file
 # batch_render.py
 # Batch runner for multi-athlete render_highlight.py
 

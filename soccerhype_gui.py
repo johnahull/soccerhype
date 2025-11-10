@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 John Hull
+# Licensed under the MIT License - see LICENSE file
 """
 SoccerHype GUI - Unified interface for athlete highlight video creation
 Main launcher that provides a guided workflow for all video processing tasks.
@@ -16,6 +18,9 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
 from typing import Dict, List, Optional
+
+# Import version information
+from version import __version__
 
 # Import profile management
 from profile_manager import PlayerProfileManager, sanitize_profile_id
@@ -260,7 +265,7 @@ class SoccerHypeGUI:
             self.error_handler = None
 
         self.root = tk.Tk()
-        self.root.title("SoccerHype - Athlete Highlight Video Creator")
+        self.root.title(f"SoccerHype v{__version__} - Athlete Highlight Video Creator")
         self.root.geometry("800x600")
         self.root.minsize(700, 500)
 

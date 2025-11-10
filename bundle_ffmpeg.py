@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 John Hull
+# Licensed under the MIT License - see LICENSE file
 """
 FFmpeg bundling helper for SoccerHype standalone packaging
 Downloads and prepares FFmpeg binaries for inclusion in the standalone app
