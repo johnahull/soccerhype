@@ -44,6 +44,9 @@ CRF = 18
 PROXY_W = 1920
 VIDEO_ONLY = True
 
+# Predefined sections for highlight videos
+SECTIONS = ["Goals", "Assists", "Dribbling", "Defense", "Saves", "Headers", "Free Kicks", "Penalties", "Set Pieces", "Passing"]
+
 # -------------------- utils --------------------
 
 def run(cmd_list):
@@ -550,6 +553,58 @@ def concat_videos(files: list[pathlib.Path], out_path: pathlib.Path):
          "-pix_fmt","yuv420p",
          str(out_path)])
 
+# -------------------- lower-third section overlay --------------------
+
+def add_lower_third_overlay(input_mp4: pathlib.Path, output_mp4: pathlib.Path,
+                            section_text: str, duration: float = 3.0):
+    """
+    Add lower-third text overlay (like TV sports graphics) to the first few seconds.
+    Text appears at bottom-left with semi-transparent background box.
+    Includes fade in/out animation.
+    """
+    # Escape special characters for FFmpeg
+    safe_text = section_text.upper().replace("'", "'\\''")
+
+    # Font path (DejaVu Sans Bold for clear readability)
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+    # Animation timing
+    fade_in = 0.5
+    fade_out = 0.5
+
+    # Build alpha expression for fade in/out
+    # fade in from 0 to fade_in, hold, fade out from (duration-fade_out) to duration
+    alpha_expr = (
+        f"if(lt(t,{fade_in}),t/{fade_in},"
+        f"if(lt(t,{duration-fade_out}),1,"
+        f"({duration}-t)/{fade_out}))"
+    )
+
+    # Lower-third styling: bottom-left with margin, semi-transparent background
+    filter_str = (
+        f"drawtext=text='{safe_text}':"
+        f"fontfile={font_path}:"
+        f"fontsize=48:"
+        f"fontcolor=white:"
+        f"x=80:"
+        f"y=h-120:"
+        f"box=1:"
+        f"boxcolor=black@0.7:"
+        f"boxborderw=15:"
+        f"enable='lt(t,{duration})':"
+        f"alpha='{alpha_expr}'"
+    )
+
+    run([
+        FFMPEG_CMD, "-y",
+        "-i", str(input_mp4),
+        "-vf", filter_str,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF),
+        "-pix_fmt", "yuv420p",
+        "-an",
+        str(output_mp4)
+    ])
+
 # -------------------- freeze + compose --------------------
 
 def make_freeze_with_spot(std_mp4: pathlib.Path, px: int, py: int, radius: int,
@@ -662,6 +717,8 @@ def main():
                 print("Using text-only slate")
 
     processed = []
+    seen_sections = set()  # Track sections we've already shown overlay for
+
     for i, c in enumerate(data.get("clips", []), 1):
         # Resolve std_file if present, otherwise use default path
         std_path = resolve_path(base, c.get("std_file"))
@@ -689,6 +746,19 @@ def main():
                               float(c.get("end_trim", 0.0)),
                               spot_frame_std, work,
                               still_dur=1.25)
+
+        # Apply section lower-third overlay if this is the first clip of a new section
+        clip_section = c.get("section")
+        if clip_section and clip_section not in seen_sections:
+            print(f"[section] Adding lower-third overlay: {clip_section}")
+            out_with_section = work / f"clip{i:02d}_sectioned.mp4"
+            # Limit overlay duration to clip duration - 0.5s (minimum 1.5s)
+            clip_dur = duration_of(out)
+            overlay_dur = min(3.0, max(1.5, clip_dur - 0.5))
+            add_lower_third_overlay(out, out_with_section, clip_section, duration=overlay_dur)
+            out = out_with_section
+            seen_sections.add(clip_section)
+
         processed.append(out)
 
     if not processed:

@@ -28,6 +28,22 @@ from typing import List, Tuple, Optional
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
+# Predefined sections for highlight videos
+SECTIONS = ["Goals", "Assists", "Dribbling", "Defense", "Saves", "Headers", "Free Kicks", "Penalties", "Set Pieces", "Passing"]
+
+SECTION_COLORS = {
+    "Goals": "#CC3333",
+    "Assists": "#33AA33",
+    "Dribbling": "#3366CC",
+    "Defense": "#CC6633",
+    "Saves": "#33AAAA",
+    "Headers": "#AA33AA",
+    "Free Kicks": "#AAAA33",
+    "Penalties": "#8833CC",
+    "Set Pieces": "#33CC99",
+    "Passing": "#CC9933",
+}
+
 # ---------- athlete / project helpers ----------
 def find_athletes() -> list[pathlib.Path]:
     if not ATHLETES.exists():
@@ -198,12 +214,11 @@ class ReorderGUI(tk.Tk):
         right.columnconfigure(0, weight=1)
 
         tk.Label(left, text="Clips (drag to reorder):", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        self.listbox = DragListbox(left, on_reorder=self.handle_drag_reorder, width=40, height=24)
+        self.listbox = DragListbox(left, on_reorder=self.handle_drag_reorder, width=44, height=24)
         self.listbox.pack(fill="y", expand=False)
 
-        for c in self.clips:
-            name = pathlib.Path(c.get("file","") or c.get("std_file","")).name or "(unnamed)"
-            self.listbox.insert(tk.END, name)
+        # Populate listbox with section badges
+        self.refresh_listbox()
 
         btns = tk.Frame(left)
         btns.pack(fill="x", pady=(8,0))
@@ -215,6 +230,15 @@ class ReorderGUI(tk.Tk):
         remove_btn.grid(row=0, column=4, padx=2)
         tk.Button(btns, text="Save Order", command=self.save_order).grid(row=0, column=5, padx=12)
         tk.Button(btns, text="Close", command=self.on_closing).grid(row=0, column=6, padx=2)
+
+        # Section assignment
+        section_frame = tk.Frame(left)
+        section_frame.pack(fill="x", pady=(8,0))
+        tk.Label(section_frame, text="Section:", font=("Segoe UI", 9)).pack(side="left")
+        self.section_var = tk.StringVar(value="(none)")
+        self.section_menu = tk.OptionMenu(section_frame, self.section_var, "(none)", *SECTIONS, command=self.set_section)
+        self.section_menu.config(width=12)
+        self.section_menu.pack(side="left", padx=4)
 
         # Preview pane
         tk.Label(right, text="Preview:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w")
@@ -238,6 +262,40 @@ class ReorderGUI(tk.Tk):
     def current_selection(self) -> Optional[int]:
         sel = self.listbox.curselection()
         return sel[0] if sel else None
+
+    def get_clip_display_name(self, clip: dict) -> str:
+        """Get display name for clip with section badge."""
+        name = pathlib.Path(clip.get("file","") or clip.get("std_file","")).name or "(unnamed)"
+        section = clip.get("section")
+        if section:
+            return f"[{section}] {name}"
+        return name
+
+    def refresh_listbox(self):
+        """Refresh listbox display with section badges and colors."""
+        current_sel = self.current_selection()
+        self.listbox.delete(0, tk.END)
+        for i, c in enumerate(self.clips):
+            display_name = self.get_clip_display_name(c)
+            self.listbox.insert(tk.END, display_name)
+            # Apply color based on section
+            section = c.get("section")
+            if section and section in SECTION_COLORS:
+                self.listbox.itemconfig(i, fg=SECTION_COLORS[section])
+        # Restore selection
+        if current_sel is not None and current_sel < len(self.clips):
+            self.listbox.selection_set(current_sel)
+
+    def set_section(self, value: str):
+        """Assign section to currently selected clip."""
+        i = self.current_selection()
+        if i is None:
+            return
+        section = None if value == "(none)" else value
+        self.clips[i]["section"] = section
+        self.is_modified = True
+        self.update_title()
+        self.refresh_listbox()
 
     def handle_drag_reorder(self, old_index: int, new_index: int):
         """Handle reordering of clips data when listbox items are dragged"""
@@ -263,13 +321,19 @@ class ReorderGUI(tk.Tk):
         i = self.current_selection()
         if i is None:
             self.preview_area.reset()
+            self.section_var.set("(none)")
             return
 
         try:
             # Validate bounds to prevent IndexError
             if i >= len(self.clips):
                 self.preview_area.reset()
+                self.section_var.set("(none)")
                 return
+
+            # Update section dropdown to show current clip's section
+            section = self.clips[i].get("section") or "(none)"
+            self.section_var.set(section)
 
             clip_name = self.listbox.get(i)
             path = resolve_video_path(self.base, self.clips[i])
@@ -284,9 +348,8 @@ class ReorderGUI(tk.Tk):
         i = self.current_selection()
         if i is None or i == 0: return
         self.clips[i-1], self.clips[i] = self.clips[i], self.clips[i-1]
-        txt = self.listbox.get(i)
-        self.listbox.delete(i)
-        self.listbox.insert(i-1, txt)
+        self.listbox.selection_clear(0, tk.END)
+        self.refresh_listbox()
         self.listbox.selection_set(i-1)
         self.is_modified = True
         self.update_title()
@@ -295,9 +358,8 @@ class ReorderGUI(tk.Tk):
         i = self.current_selection()
         if i is None or i >= len(self.clips)-1: return
         self.clips[i+1], self.clips[i] = self.clips[i], self.clips[i+1]
-        txt = self.listbox.get(i)
-        self.listbox.delete(i)
-        self.listbox.insert(i+1, txt)
+        self.listbox.selection_clear(0, tk.END)
+        self.refresh_listbox()
         self.listbox.selection_set(i+1)
         self.is_modified = True
         self.update_title()
@@ -309,9 +371,7 @@ class ReorderGUI(tk.Tk):
             pairs.append((name, c))
         pairs.sort(key=lambda x: x[0].lower())
         self.clips = [c for _, c in pairs]
-        self.listbox.delete(0, tk.END)
-        for name, _ in pairs:
-            self.listbox.insert(tk.END, name)
+        self.refresh_listbox()
         self.is_modified = True
         self.update_title()
 

@@ -567,7 +567,9 @@ class SoccerHypeGUI:
             try:
                 intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
             except ValueError:
-                intro_media = str(media_path.name) if media_path.exists() else None
+                # Handle case where media path is not relative to athlete dir
+                # Assume it's in the intro/ folder
+                intro_media = f"intro/{media_path.name}" if media_path.exists() else None
 
         # Preserve existing clips if project already exists
         existing_clips = []
@@ -1224,7 +1226,8 @@ class PlayerInfoDialog:
                 intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
             except ValueError:
                 # Handle case where media path is not relative to athlete dir
-                intro_media = str(media_path.name) if media_path.exists() else None
+                # Assume it's in the intro/ folder
+                intro_media = f"intro/{media_path.name}" if media_path.exists() else None
 
         # Preserve existing clips if project already exists
         existing_clips = []
