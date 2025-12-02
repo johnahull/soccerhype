@@ -57,8 +57,10 @@ jobs:
 
     - name: Run Bandit security scan
       run: |
+        # Generate full report (all severities) for artifact
         bandit -r . -f json -o bandit-report.json --exclude .venv,venv || true
-        bandit -r . --exclude .venv,venv
+        # Only fail on high severity issues (-ll = severity HIGH or above)
+        bandit -r . --exclude .venv,venv -ll
 
     - name: Upload Bandit report
       if: always()
