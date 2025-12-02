@@ -44,7 +44,11 @@ from constants import (
     OVERLAY_FADE_IN,
     OVERLAY_FADE_OUT,
     OVERLAY_DURATION_MIN,
-    OVERLAY_MARGIN
+    OVERLAY_MARGIN,
+    OVERLAY_FONT_SIZE,
+    OVERLAY_X_MARGIN,
+    OVERLAY_Y_OFFSET,
+    OVERLAY_BOX_BORDER
 )
 
 ROOT = pathlib.Path.cwd()
@@ -725,22 +729,22 @@ def add_lower_third_overlay(input_mp4: pathlib.Path, output_mp4: pathlib.Path,
     # Lower-third styling: bottom-left with margin, semi-transparent background
     filter_parts = [
         f"drawtext=text='{safe_text}'",
-        f"fontsize=48",
+        f"fontsize={OVERLAY_FONT_SIZE}",
         f"fontcolor=white",
-        f"x=80",
-        f"y=h-120",
+        f"x={OVERLAY_X_MARGIN}",
+        f"y=h-{OVERLAY_Y_OFFSET}",
         f"box=1",
         f"boxcolor=black@0.7",
-        f"boxborderw=15",
+        f"boxborderw={OVERLAY_BOX_BORDER}",
         f"enable='lt(t,{duration})'",
         f"alpha='{alpha_expr}'"
     ]
 
-    # Only add fontfile if we found one (escape path for security)
+    # Only add fontfile if we found one
+    # Note: Font paths are trusted system paths, not user input, so we don't escape them
+    # Escaping would break Windows paths (C:/Windows/Fonts would become C\:/Windows/Fonts)
     if font_path:
-        # Escape font path to prevent injection attacks
-        safe_font_path = escape_drawtext(font_path)
-        filter_parts.insert(1, f"fontfile={safe_font_path}")
+        filter_parts.insert(1, f"fontfile={font_path}")
 
     filter_str = ":".join(filter_parts)
 
@@ -899,13 +903,21 @@ def main():
         # Apply section lower-third overlay if this is the first clip of a new section
         clip_section = c.get("section")
         if clip_section and clip_section not in seen_sections:
+            # Validate section is in the predefined list
+            if clip_section not in SECTIONS:
+                print(f"Warning: Invalid section '{clip_section}' in clip {i:02d}, skipping overlay")
+                clip_section = None
+
+        if clip_section and clip_section not in seen_sections:
             print(f"[section] Adding lower-third overlay: {clip_section}")
             out_with_section = work / f"clip{i:02d}_sectioned.mp4"
             # Calculate overlay duration: clamp between OVERLAY_DURATION_MIN and OVERLAY_DURATION_DEFAULT,
-            # but never exceed (clip_duration - OVERLAY_MARGIN) to avoid overlay extending to clip end.
-            # This ensures: 1.5s <= overlay_dur <= min(3.0s, clip_dur - 0.5s)
+            # but never exceed clip_duration to avoid overlay extending beyond the clip.
+            # For very short clips, use the clip duration minus margin, or the full clip if too short.
             clip_dur = duration_of(out)
+            # First clamp to reasonable bounds, then ensure it never exceeds clip duration
             overlay_dur = min(OVERLAY_DURATION_DEFAULT, max(OVERLAY_DURATION_MIN, clip_dur - OVERLAY_MARGIN))
+            overlay_dur = min(overlay_dur, clip_dur)  # Critical: never exceed clip duration
 
             # Add error handling for overlay generation
             try:

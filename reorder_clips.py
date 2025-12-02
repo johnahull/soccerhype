@@ -26,7 +26,7 @@ from tkinter import messagebox
 from typing import List, Tuple, Optional
 
 # Import shared constants
-from constants import SECTIONS, SECTION_COLORS
+from constants import SECTIONS, SECTION_COLORS, OVERLAY_DEFAULT_COLOR
 
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
@@ -269,6 +269,9 @@ class ReorderGUI(tk.Tk):
             section = c.get("section")
             if section and section in SECTION_COLORS:
                 self.listbox.itemconfig(i, fg=SECTION_COLORS[section])
+            else:
+                # Use neutral default color (dark theme safe)
+                self.listbox.itemconfig(i, fg=OVERLAY_DEFAULT_COLOR)
         # Restore selection
         if current_sel is not None and current_sel < len(self.clips):
             self.listbox.selection_set(current_sel)
@@ -301,8 +304,8 @@ class ReorderGUI(tk.Tk):
         if section and section in SECTION_COLORS:
             self.listbox.itemconfig(i, fg=SECTION_COLORS[section])
         else:
-            # Reset to default color if no section
-            self.listbox.itemconfig(i, fg="black")
+            # Reset to neutral default color (dark theme safe)
+            self.listbox.itemconfig(i, fg=OVERLAY_DEFAULT_COLOR)
 
         # Restore selection
         self.listbox.selection_set(i)

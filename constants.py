@@ -36,3 +36,10 @@ OVERLAY_FADE_IN = 0.5           # Fade-in animation duration
 OVERLAY_FADE_OUT = 0.5          # Fade-out animation duration
 OVERLAY_DURATION_MIN = 1.5      # Minimum overlay duration for short clips
 OVERLAY_MARGIN = 0.5            # Margin before clip end for timing
+
+# Lower-third overlay styling constants
+OVERLAY_FONT_SIZE = 48          # Font size in points
+OVERLAY_X_MARGIN = 80           # Left margin from edge in pixels
+OVERLAY_Y_OFFSET = 120          # Offset from bottom edge in pixels
+OVERLAY_BOX_BORDER = 15         # Border width for text box in pixels
+OVERLAY_DEFAULT_COLOR = "#808080"  # Neutral gray for undefined sections (dark theme safe)
