@@ -734,7 +734,8 @@ class SoccerHypeGUI:
             elif system == "Darwin":  # macOS
                 subprocess.run(["open", str(final_video)], check=True)
             elif system == "Windows":
-                subprocess.run(["start", str(final_video)], shell=True, check=True)
+                import os
+                os.startfile(str(final_video))  # nosec B606 - safe, opens file with default app
             else:
                 messagebox.showinfo("Info", f"Please open video manually: {final_video}")
         except (subprocess.CalledProcessError, FileNotFoundError):
