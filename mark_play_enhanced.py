@@ -453,7 +453,7 @@ def mark_on_proxy_enhanced(orig_path: pathlib.Path, proxy_path: pathlib.Path,
     history.add_state(marker, radius)
 
     def on_mouse(event, x, y, flags, param):
-        nonlocal marker, radius, history
+        nonlocal marker, radius
 
         if event == cv2.EVENT_LBUTTONDOWN:
             # Convert display coordinates to video coordinates

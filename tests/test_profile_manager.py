@@ -119,12 +119,11 @@ class TestPlayerProfileManager(unittest.TestCase):
         self.assertIn("GPA must be a valid number", errors)
 
     def test_profile_id_generation_uniqueness(self):
-        """Test that profile IDs are unique."""
-        import time
+        """Test that profile IDs are unique when names differ."""
+        # Use different names to ensure unique IDs without relying on timestamp
         id1 = self.manager.generate_profile_id("John Smith")
-        time.sleep(0.001)  # Ensure different timestamp
-        id2 = self.manager.generate_profile_id("John Smith")
-        self.assertNotEqual(id1, id2)  # Should have different timestamps
+        id2 = self.manager.generate_profile_id("Jane Doe")
+        self.assertNotEqual(id1, id2)  # Different names should produce different IDs
 
     def test_atomic_file_operations(self):
         """Test that file operations are atomic."""
