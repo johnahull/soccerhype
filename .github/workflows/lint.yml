@@ -59,8 +59,8 @@ jobs:
       run: |
         # Generate full report (all severities) for artifact
         bandit -r . -f json -o bandit-report.json --exclude .venv,venv || true
-        # Only fail on high severity issues (-ll = severity HIGH or above)
-        bandit -r . --exclude .venv,venv -ll
+        # Only fail on high severity issues (-lll = severity HIGH only)
+        bandit -r . --exclude .venv,venv -lll
 
     - name: Upload Bandit report
       if: always()
