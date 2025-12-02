@@ -119,10 +119,17 @@ def find_dejavu_font() -> str:
             str(pathlib.Path.home() / "AppData/Local/Microsoft/Windows/Fonts/DejaVuSans-Bold.ttf"),
         ]
 
-    # Check if any candidate exists
+    # Check if any candidate exists and validate file type
     for font_path in candidates:
-        if pathlib.Path(font_path).exists():
-            return font_path
+        font_file = pathlib.Path(font_path)
+        if font_file.exists():
+            # Validate font file extension for security
+            if font_file.suffix.lower() not in ['.ttf', '.otf', '.ttc']:
+                print(f"Warning: Invalid font file type: {font_path}")
+                continue
+            # Check if file is readable
+            if os.access(font_file, os.R_OK):
+                return font_path
 
     # Fallback: return empty string to let FFmpeg use default font
     print("Warning: DejaVu Sans Bold font not found, using FFmpeg default font")
@@ -697,7 +704,7 @@ def add_lower_third_overlay(input_mp4: pathlib.Path, output_mp4: pathlib.Path,
 
     # Validate duration
     if duration <= 0 or duration > 10:
-        raise ValueError(f"Duration must be 0-10 seconds, got {duration}")
+        raise ValueError(f"Duration must be greater than 0 and at most 10 seconds, got {duration}")
 
     # Escape special characters for FFmpeg drawtext filter (security fix)
     safe_text = escape_drawtext(section_text.upper())
@@ -893,7 +900,9 @@ def main():
         if clip_section and clip_section not in seen_sections:
             print(f"[section] Adding lower-third overlay: {clip_section}")
             out_with_section = work / f"clip{i:02d}_sectioned.mp4"
-            # Limit overlay duration to clip duration - OVERLAY_MARGIN (minimum OVERLAY_DURATION_MIN)
+            # Calculate overlay duration: clamp between OVERLAY_DURATION_MIN and OVERLAY_DURATION_DEFAULT,
+            # but never exceed (clip_duration - OVERLAY_MARGIN) to avoid overlay extending to clip end.
+            # This ensures: 1.5s <= overlay_dur <= min(3.0s, clip_dur - 0.5s)
             clip_dur = duration_of(out)
             overlay_dur = min(OVERLAY_DURATION_DEFAULT, max(OVERLAY_DURATION_MIN, clip_dur - OVERLAY_MARGIN))
 

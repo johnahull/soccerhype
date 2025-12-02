@@ -576,7 +576,7 @@ class SoccerHypeGUI:
                     intro_media = str(media_path.relative_to(athlete_dir))
                 elif media_path.exists() and (intro_dir / media_path.name).exists():
                     # File with same name exists in intro folder (likely was copied)
-                    intro_media = f"intro/{media_path.name}"
+                    intro_media = str(pathlib.Path("intro") / media_path.name)
                 else:
                     # File is outside athlete_dir and not in intro - log warning
                     print(f"Warning: Media file {media_path} is outside athlete directory")
@@ -1245,7 +1245,7 @@ class PlayerInfoDialog:
                     intro_media = str(media_path.relative_to(athlete_dir))
                 elif media_path.exists() and (intro_dir / media_path.name).exists():
                     # File with same name exists in intro folder (likely was copied)
-                    intro_media = f"intro/{media_path.name}"
+                    intro_media = str(pathlib.Path("intro") / media_path.name)
                 else:
                     # File is outside athlete_dir and not in intro - log warning
                     print(f"Warning: Media file {media_path} is outside athlete directory")
