@@ -25,24 +25,11 @@ import tkinter as tk
 from tkinter import messagebox
 from typing import List, Tuple, Optional
 
+# Import shared constants
+from constants import SECTIONS, SECTION_COLORS
+
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
-
-# Predefined sections for highlight videos
-SECTIONS = ["Goals", "Assists", "Dribbling", "Defense", "Saves", "Headers", "Free Kicks", "Penalties", "Set Pieces", "Passing"]
-
-SECTION_COLORS = {
-    "Goals": "#CC3333",
-    "Assists": "#33AA33",
-    "Dribbling": "#3366CC",
-    "Defense": "#CC6633",
-    "Saves": "#33AAAA",
-    "Headers": "#AA33AA",
-    "Free Kicks": "#AAAA33",
-    "Penalties": "#8833CC",
-    "Set Pieces": "#33CC99",
-    "Passing": "#CC9933",
-}
 
 # ---------- athlete / project helpers ----------
 def find_athletes() -> list[pathlib.Path]:
@@ -291,7 +278,16 @@ class ReorderGUI(tk.Tk):
         i = self.current_selection()
         if i is None:
             return
+
+        # Validate section value
         section = None if value == "(none)" else value
+        if section is not None and section not in SECTIONS:
+            messagebox.showwarning(
+                "Invalid Section",
+                f"'{section}' is not a valid section.\nValid sections: {', '.join(SECTIONS)}"
+            )
+            return
+
         self.clips[i]["section"] = section
         self.is_modified = True
         self.update_title()
