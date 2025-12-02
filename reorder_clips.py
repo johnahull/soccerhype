@@ -291,7 +291,22 @@ class ReorderGUI(tk.Tk):
         self.clips[i]["section"] = section
         self.is_modified = True
         self.update_title()
-        self.refresh_listbox()
+
+        # Optimized: Only update the changed item instead of rebuilding entire list
+        display_name = self.get_clip_display_name(self.clips[i])
+        self.listbox.delete(i)
+        self.listbox.insert(i, display_name)
+
+        # Apply color based on section
+        if section and section in SECTION_COLORS:
+            self.listbox.itemconfig(i, fg=SECTION_COLORS[section])
+        else:
+            # Reset to default color if no section
+            self.listbox.itemconfig(i, fg="black")
+
+        # Restore selection
+        self.listbox.selection_set(i)
+        self.listbox.activate(i)
 
     def handle_drag_reorder(self, old_index: int, new_index: int):
         """Handle reordering of clips data when listbox items are dragged"""
