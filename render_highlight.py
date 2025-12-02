@@ -566,19 +566,54 @@ def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Pa
     name = (player.get("name") or "Player Name")
     pos = (player.get("position") or "")
     grad = str(player.get("grad_year") or "")
-    
+
+    # Find font with cross-platform support (security: escape font paths)
+    font_bold = find_dejavu_font()
+    safe_font_bold = escape_drawtext(font_bold) if font_bold else ""
+    # For regular font, try to find regular variant, fallback to bold
+    font_regular = font_bold.replace("-Bold", "") if font_bold and "-Bold" in font_bold else font_bold
+    safe_font_regular = escape_drawtext(font_regular) if font_regular else ""
+
+    # Escape text content for security
+    safe_name = escape_drawtext(name)
+
     # Build filter for text overlay
     text_filters = []
-    
+
     # Main name with background
     name_y = "h*0.75"
     pos_y = "h*0.82"
-    text_filters.append(f"drawtext=text='{name}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=64:fontcolor=white:x=(w-text_w)/2:y={name_y}:box=1:boxcolor=black@0.7:boxborderw=10")
-    
+    name_filter_parts = [
+        f"drawtext=text='{safe_name}'",
+        f"fontsize=64",
+        f"fontcolor=white",
+        f"x=(w-text_w)/2",
+        f"y={name_y}",
+        f"box=1",
+        f"boxcolor=black@0.7",
+        f"boxborderw=10"
+    ]
+    if safe_font_bold:
+        name_filter_parts.insert(1, f"fontfile={safe_font_bold}")
+    text_filters.append(":".join(name_filter_parts))
+
     # Position and grad year
     if pos or grad:
         pos_line = pos + (f"  •  Class of {grad}" if grad else "")
-        text_filters.append(f"drawtext=text='{pos_line}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=40:fontcolor=white:x=(w-text_w)/2:y={pos_y}:box=1:boxcolor=black@0.7:boxborderw=8")
+        safe_pos_line = escape_drawtext(pos_line)
+        pos_filter_parts = [
+            f"drawtext=text='{safe_pos_line}'",
+            f"fontsize=40",
+            f"fontcolor=white",
+            f"x=(w-text_w)/2",
+            f"y={pos_y}",
+            f"box=1",
+            f"boxcolor=black@0.7",
+            f"boxborderw=8"
+        ]
+        if safe_font_regular:
+            pos_filter_parts.insert(1, f"fontfile={safe_font_regular}")
+        text_filters.append(":".join(pos_filter_parts))
     
     filter_str = ",".join(text_filters)
     
@@ -693,9 +728,11 @@ def add_lower_third_overlay(input_mp4: pathlib.Path, output_mp4: pathlib.Path,
         f"alpha='{alpha_expr}'"
     ]
 
-    # Only add fontfile if we found one
+    # Only add fontfile if we found one (escape path for security)
     if font_path:
-        filter_parts.insert(1, f"fontfile={font_path}")
+        # Escape font path to prevent injection attacks
+        safe_font_path = escape_drawtext(font_path)
+        filter_parts.insert(1, f"fontfile={safe_font_path}")
 
     filter_str = ":".join(filter_parts)
 

@@ -565,11 +565,22 @@ class SoccerHypeGUI:
         if selected_media_path:
             media_path = pathlib.Path(selected_media_path)
             try:
+                # Try to make path relative to athlete directory
                 intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
             except ValueError:
-                # Handle case where media path is not relative to athlete dir
-                # Assume it's in the intro/ folder
-                intro_media = f"intro/{media_path.name}" if media_path.exists() else None
+                # Path is not relative to athlete_dir (file selected from elsewhere)
+                # Check if it's actually in the intro folder but path wasn't relative
+                intro_dir = athlete_dir / "intro"
+                if media_path.exists() and intro_dir in media_path.parents:
+                    # File is in intro folder, make it relative
+                    intro_media = str(media_path.relative_to(athlete_dir))
+                elif media_path.exists() and (intro_dir / media_path.name).exists():
+                    # File with same name exists in intro folder (likely was copied)
+                    intro_media = f"intro/{media_path.name}"
+                else:
+                    # File is outside athlete_dir and not in intro - log warning
+                    print(f"Warning: Media file {media_path} is outside athlete directory")
+                    intro_media = None
 
         # Preserve existing clips if project already exists
         existing_clips = []
@@ -1226,9 +1237,19 @@ class PlayerInfoDialog:
             try:
                 intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
             except ValueError:
-                # Handle case where media path is not relative to athlete dir
-                # Assume it's in the intro/ folder
-                intro_media = f"intro/{media_path.name}" if media_path.exists() else None
+                # Path is not relative to athlete_dir (file selected from elsewhere)
+                # Check if it's actually in the intro folder but path wasn't relative
+                intro_dir = athlete_dir / "intro"
+                if media_path.exists() and intro_dir in media_path.parents:
+                    # File is in intro folder, make it relative
+                    intro_media = str(media_path.relative_to(athlete_dir))
+                elif media_path.exists() and (intro_dir / media_path.name).exists():
+                    # File with same name exists in intro folder (likely was copied)
+                    intro_media = f"intro/{media_path.name}"
+                else:
+                    # File is outside athlete_dir and not in intro - log warning
+                    print(f"Warning: Media file {media_path} is outside athlete directory")
+                    intro_media = None
 
         # Preserve existing clips if project already exists
         existing_clips = []
