@@ -361,9 +361,28 @@ class ReorderGUI(tk.Tk):
     def move_up(self):
         i = self.current_selection()
         if i is None or i == 0: return
+        # Swap clips in data
         self.clips[i-1], self.clips[i] = self.clips[i], self.clips[i-1]
+        # Optimize: only swap the two affected items instead of full refresh
+        item_above = self.listbox.get(i-1)
+        item_current = self.listbox.get(i)
+        self.listbox.delete(i-1)
+        self.listbox.insert(i-1, item_current)
+        self.listbox.delete(i)
+        self.listbox.insert(i, item_above)
+        # Restore colors
+        section_above = self.clips[i-1].get("section")
+        section_current = self.clips[i].get("section")
+        if section_above and section_above in SECTION_COLORS:
+            self.listbox.itemconfig(i-1, fg=SECTION_COLORS[section_above])
+        else:
+            self.listbox.itemconfig(i-1, fg=OVERLAY_DEFAULT_COLOR)
+        if section_current and section_current in SECTION_COLORS:
+            self.listbox.itemconfig(i, fg=SECTION_COLORS[section_current])
+        else:
+            self.listbox.itemconfig(i, fg=OVERLAY_DEFAULT_COLOR)
+        # Update selection
         self.listbox.selection_clear(0, tk.END)
-        self.refresh_listbox()
         self.listbox.selection_set(i-1)
         self.is_modified = True
         self.update_title()
@@ -371,9 +390,28 @@ class ReorderGUI(tk.Tk):
     def move_down(self):
         i = self.current_selection()
         if i is None or i >= len(self.clips)-1: return
+        # Swap clips in data
         self.clips[i+1], self.clips[i] = self.clips[i], self.clips[i+1]
+        # Optimize: only swap the two affected items instead of full refresh
+        item_current = self.listbox.get(i)
+        item_below = self.listbox.get(i+1)
+        self.listbox.delete(i)
+        self.listbox.insert(i, item_below)
+        self.listbox.delete(i+1)
+        self.listbox.insert(i+1, item_current)
+        # Restore colors
+        section_current = self.clips[i].get("section")
+        section_below = self.clips[i+1].get("section")
+        if section_current and section_current in SECTION_COLORS:
+            self.listbox.itemconfig(i, fg=SECTION_COLORS[section_current])
+        else:
+            self.listbox.itemconfig(i, fg=OVERLAY_DEFAULT_COLOR)
+        if section_below and section_below in SECTION_COLORS:
+            self.listbox.itemconfig(i+1, fg=SECTION_COLORS[section_below])
+        else:
+            self.listbox.itemconfig(i+1, fg=OVERLAY_DEFAULT_COLOR)
+        # Update selection
         self.listbox.selection_clear(0, tk.END)
-        self.refresh_listbox()
         self.listbox.selection_set(i+1)
         self.is_modified = True
         self.update_title()

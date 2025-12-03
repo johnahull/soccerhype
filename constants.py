@@ -30,6 +30,15 @@ SECTION_COLORS = {
     "Passing": "#CC9933",
 }
 
+# Validate that all sections have corresponding colors
+_missing_colors = set(SECTIONS) - set(SECTION_COLORS.keys())
+if _missing_colors:
+    raise ValueError(f"Sections missing color mappings: {_missing_colors}")
+
+_extra_colors = set(SECTION_COLORS.keys()) - set(SECTIONS)
+if _extra_colors:
+    raise ValueError(f"Color mappings for undefined sections: {_extra_colors}")
+
 # Lower-third overlay timing constants (in seconds)
 OVERLAY_DURATION_DEFAULT = 3.0  # Default overlay display duration
 OVERLAY_FADE_IN = 0.5           # Fade-in animation duration

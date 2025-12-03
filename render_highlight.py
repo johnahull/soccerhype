@@ -107,6 +107,8 @@ def find_dejavu_font() -> str:
     system = platform.system()
 
     candidates = []
+    # Define allowed system font directories for security validation
+    allowed_dirs = []
 
     if system == "Linux":
         candidates = [
@@ -114,29 +116,40 @@ def find_dejavu_font() -> str:
             "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
         ]
+        allowed_dirs = ["/usr/share/fonts", "/usr/local/share/fonts"]
     elif system == "Darwin":  # macOS
         candidates = [
             "/System/Library/Fonts/Supplemental/DejaVuSans-Bold.ttf",
             "/Library/Fonts/DejaVuSans-Bold.ttf",
             str(pathlib.Path.home() / "Library/Fonts/DejaVuSans-Bold.ttf"),
         ]
+        allowed_dirs = ["/System/Library/Fonts", "/Library/Fonts",
+                       str(pathlib.Path.home() / "Library/Fonts")]
     elif system == "Windows":
         candidates = [
             "C:/Windows/Fonts/DejaVuSans-Bold.ttf",
             str(pathlib.Path.home() / "AppData/Local/Microsoft/Windows/Fonts/DejaVuSans-Bold.ttf"),
         ]
+        allowed_dirs = ["C:/Windows/Fonts", "C:\\Windows\\Fonts",
+                       str(pathlib.Path.home() / "AppData/Local/Microsoft/Windows/Fonts")]
 
     # Check if any candidate exists and validate file type
     for font_path in candidates:
-        font_file = pathlib.Path(font_path)
+        font_file = pathlib.Path(font_path).resolve()
         if font_file.exists():
             # Validate font file extension for security
             if font_file.suffix.lower() not in ['.ttf', '.otf', '.ttc']:
                 print(f"Warning: Invalid font file type: {font_path}")
                 continue
             # Check if file is readable
-            if os.access(font_file, os.R_OK):
-                return font_path
+            if not os.access(font_file, os.R_OK):
+                continue
+            # Validate path is within allowed system directories
+            font_str = str(font_file)
+            if not any(font_str.startswith(allowed_dir) for allowed_dir in allowed_dirs):
+                print(f"Warning: Font path outside allowed directories: {font_path}")
+                continue
+            return str(font_file)
 
     # Fallback: return empty string to let FFmpeg use default font
     print("Warning: DejaVu Sans Bold font not found, using FFmpeg default font")
@@ -926,7 +939,7 @@ def main():
                 add_lower_third_overlay(out, out_with_section, clip_section, duration=overlay_dur)
                 out = out_with_section
                 seen_sections.add(clip_section)
-            except Exception as e:
+            except (subprocess.CalledProcessError, ValueError, OSError, IOError) as e:
                 print(f"Warning: Failed to add overlay for '{clip_section}' on clip {i:02d}: {e}")
                 print(f"Continuing with clip without overlay...")
                 # Continue with original clip without overlay
