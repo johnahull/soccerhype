@@ -148,12 +148,18 @@ def extract_archive(archive_path, extract_dir):
     elif archive_path.suffix in ['.tar', '.xz', '.gz']:
         import tarfile
         with tarfile.open(archive_path, 'r:*') as tar_ref:
-            # Validate each member path to prevent path traversal attacks
+            # Filter members to prevent path traversal attacks
+            safe_members = []
             for member in tar_ref.getmembers():
+                # Reject symlinks and hard links for security
+                if member.issym() or member.islnk():
+                    raise ValueError(f"Archive contains unsafe link: {member.name}")
+
                 member_path = (extract_dir / member.name).resolve()
                 if not str(member_path).startswith(str(extract_dir)):
                     raise ValueError(f"Attempted path traversal in archive: {member.name}")
-            tar_ref.extractall(extract_dir)
+                safe_members.append(member)
+            tar_ref.extractall(extract_dir, members=safe_members)
     else:
         raise ValueError(f"Unsupported archive format: {archive_path.suffix}")
 

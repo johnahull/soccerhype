@@ -15,9 +15,13 @@
 #
 # Requires: Pillow, FFmpeg
 
+from __future__ import annotations
+
 import argparse
 import json
+import os
 import pathlib
+import platform
 import shutil
 import subprocess
 import sys
@@ -35,6 +39,20 @@ except ImportError:
     FFMPEG_CMD = "ffmpeg"
     FFPROBE_CMD = "ffprobe"
 
+# Import shared constants
+from constants import (
+    SECTIONS,
+    OVERLAY_DURATION_DEFAULT,
+    OVERLAY_FADE_IN,
+    OVERLAY_FADE_OUT,
+    OVERLAY_DURATION_MIN,
+    OVERLAY_MARGIN,
+    OVERLAY_FONT_SIZE,
+    OVERLAY_X_MARGIN,
+    OVERLAY_Y_OFFSET,
+    OVERLAY_BOX_BORDER
+)
+
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
@@ -43,6 +61,99 @@ FPS = 30
 CRF = 18
 PROXY_W = 1920
 VIDEO_ONLY = True
+
+# -------------------- security and cross-platform utils --------------------
+
+def escape_drawtext(text: str) -> str:
+    """
+    Escape special characters for FFmpeg drawtext filter.
+
+    FFmpeg drawtext filter has many special characters that need escaping:
+    - Backslash (\) - used for escape sequences
+    - Colon (:) - separates filter parameters
+    - Percent (%) - used for text expansion
+    - Curly braces ({}) - used for text expansion
+    - Square brackets ([]) - used for text expansion
+    - Single quotes (') - for shell safety
+
+    Args:
+        text: The text to escape
+
+    Returns:
+        Safely escaped text for use in drawtext filter
+    """
+    # Order matters: escape backslash first
+    text = text.replace("\\", "\\\\")
+    text = text.replace(":", "\\:")
+    text = text.replace("%", "\\%")
+    text = text.replace("{", "\\{")
+    text = text.replace("}", "\\}")
+    text = text.replace("[", "\\[")
+    text = text.replace("]", "\\]")
+    # Shell-safe single quote escaping
+    text = text.replace("'", "'\\''")
+    return text
+
+def find_dejavu_font() -> str:
+    """
+    Find DejaVu Sans Bold font across different platforms.
+
+    Checks common font locations on Linux, macOS, and Windows.
+    Falls back to system default if DejaVu is not found.
+
+    Returns:
+        Path to font file, or empty string to use FFmpeg default
+    """
+    system = platform.system()
+
+    candidates = []
+    # Define allowed system font directories for security validation
+    allowed_dirs = []
+
+    if system == "Linux":
+        candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        ]
+        allowed_dirs = ["/usr/share/fonts", "/usr/local/share/fonts"]
+    elif system == "Darwin":  # macOS
+        candidates = [
+            "/System/Library/Fonts/Supplemental/DejaVuSans-Bold.ttf",
+            "/Library/Fonts/DejaVuSans-Bold.ttf",
+            str(pathlib.Path.home() / "Library/Fonts/DejaVuSans-Bold.ttf"),
+        ]
+        allowed_dirs = ["/System/Library/Fonts", "/Library/Fonts",
+                       str(pathlib.Path.home() / "Library/Fonts")]
+    elif system == "Windows":
+        candidates = [
+            "C:/Windows/Fonts/DejaVuSans-Bold.ttf",
+            str(pathlib.Path.home() / "AppData/Local/Microsoft/Windows/Fonts/DejaVuSans-Bold.ttf"),
+        ]
+        allowed_dirs = ["C:/Windows/Fonts", "C:\\Windows\\Fonts",
+                       str(pathlib.Path.home() / "AppData/Local/Microsoft/Windows/Fonts")]
+
+    # Check if any candidate exists and validate file type
+    for font_path in candidates:
+        font_file = pathlib.Path(font_path).resolve()
+        if font_file.exists():
+            # Validate font file extension for security
+            if font_file.suffix.lower() not in ['.ttf', '.otf', '.ttc']:
+                print(f"Warning: Invalid font file type: {font_path}")
+                continue
+            # Check if file is readable
+            if not os.access(font_file, os.R_OK):
+                continue
+            # Validate path is within allowed system directories
+            font_str = str(font_file)
+            if not any(font_str.startswith(allowed_dir) for allowed_dir in allowed_dirs):
+                print(f"Warning: Font path outside allowed directories: {font_path}")
+                continue
+            return str(font_file)
+
+    # Fallback: return empty string to let FFmpeg use default font
+    print("Warning: DejaVu Sans Bold font not found, using FFmpeg default font")
+    return ""
 
 # -------------------- utils --------------------
 
@@ -482,19 +593,54 @@ def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Pa
     name = (player.get("name") or "Player Name")
     pos = (player.get("position") or "")
     grad = str(player.get("grad_year") or "")
-    
+
+    # Find font with cross-platform support (security: escape font paths)
+    font_bold = find_dejavu_font()
+    safe_font_bold = escape_drawtext(font_bold) if font_bold else ""
+    # For regular font, try to find regular variant, fallback to bold
+    font_regular = font_bold.replace("-Bold", "") if font_bold and "-Bold" in font_bold else font_bold
+    safe_font_regular = escape_drawtext(font_regular) if font_regular else ""
+
+    # Escape text content for security
+    safe_name = escape_drawtext(name)
+
     # Build filter for text overlay
     text_filters = []
-    
+
     # Main name with background
     name_y = "h*0.75"
     pos_y = "h*0.82"
-    text_filters.append(f"drawtext=text='{name}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=64:fontcolor=white:x=(w-text_w)/2:y={name_y}:box=1:boxcolor=black@0.7:boxborderw=10")
-    
+    name_filter_parts = [
+        f"drawtext=text='{safe_name}'",
+        f"fontsize=64",
+        f"fontcolor=white",
+        f"x=(w-text_w)/2",
+        f"y={name_y}",
+        f"box=1",
+        f"boxcolor=black@0.7",
+        f"boxborderw=10"
+    ]
+    if safe_font_bold:
+        name_filter_parts.insert(1, f"fontfile={safe_font_bold}")
+    text_filters.append(":".join(name_filter_parts))
+
     # Position and grad year
     if pos or grad:
         pos_line = pos + (f"  •  Class of {grad}" if grad else "")
-        text_filters.append(f"drawtext=text='{pos_line}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=40:fontcolor=white:x=(w-text_w)/2:y={pos_y}:box=1:boxcolor=black@0.7:boxborderw=8")
+        safe_pos_line = escape_drawtext(pos_line)
+        pos_filter_parts = [
+            f"drawtext=text='{safe_pos_line}'",
+            f"fontsize=40",
+            f"fontcolor=white",
+            f"x=(w-text_w)/2",
+            f"y={pos_y}",
+            f"box=1",
+            f"boxcolor=black@0.7",
+            f"boxborderw=8"
+        ]
+        if safe_font_regular:
+            pos_filter_parts.insert(1, f"fontfile={safe_font_regular}")
+        text_filters.append(":".join(pos_filter_parts))
     
     filter_str = ",".join(text_filters)
     
@@ -549,6 +695,83 @@ def concat_videos(files: list[pathlib.Path], out_path: pathlib.Path):
          "-c:v","libx264","-preset","veryfast","-crf",str(CRF),
          "-pix_fmt","yuv420p",
          str(out_path)])
+
+# -------------------- lower-third section overlay --------------------
+
+def add_lower_third_overlay(input_mp4: pathlib.Path, output_mp4: pathlib.Path,
+                            section_text: str, duration: float = OVERLAY_DURATION_DEFAULT):
+    """
+    Add lower-third text overlay (like TV sports graphics) to the first few seconds.
+    Text appears at bottom-left with semi-transparent background box.
+    Includes fade in/out animation.
+
+    Args:
+        input_mp4: Input video file path
+        output_mp4: Output video file path
+        section_text: Text to display (will be validated and escaped)
+        duration: Display duration in seconds (default from constants)
+
+    Raises:
+        ValueError: If section_text is invalid or duration is out of bounds
+    """
+    # Validate section text
+    if not section_text or not section_text.strip():
+        raise ValueError("Section text cannot be empty")
+    if len(section_text) > 50:
+        raise ValueError(f"Section text too long: {len(section_text)} chars (max 50)")
+    if section_text not in SECTIONS:
+        print(f"Warning: '{section_text}' is not a predefined section")
+
+    # Validate duration
+    if duration <= 0 or duration > 10:
+        raise ValueError(f"Duration must be greater than 0 and at most 10 seconds, got {duration}")
+
+    # Escape special characters for FFmpeg drawtext filter (security fix)
+    safe_text = escape_drawtext(section_text.upper())
+
+    # Find font path with cross-platform support
+    font_path = find_dejavu_font()
+
+    # Build alpha expression for fade in/out
+    # fade in from 0 to OVERLAY_FADE_IN, hold, fade out from (duration-OVERLAY_FADE_OUT) to duration
+    alpha_expr = (
+        f"if(lt(t,{OVERLAY_FADE_IN}),t/{OVERLAY_FADE_IN},"
+        f"if(lt(t,{duration-OVERLAY_FADE_OUT}),1,"
+        f"({duration}-t)/{OVERLAY_FADE_OUT}))"
+    )
+
+    # Build drawtext filter string
+    # Lower-third styling: bottom-left with margin, semi-transparent background
+    filter_parts = [
+        f"drawtext=text='{safe_text}'",
+        f"fontsize={OVERLAY_FONT_SIZE}",
+        f"fontcolor=white",
+        f"x={OVERLAY_X_MARGIN}",
+        f"y=h-{OVERLAY_Y_OFFSET}",
+        f"box=1",
+        f"boxcolor=black@0.7",
+        f"boxborderw={OVERLAY_BOX_BORDER}",
+        f"enable='lt(t,{duration})'",
+        f"alpha='{alpha_expr}'"
+    ]
+
+    # Only add fontfile if we found one
+    # Note: Font paths are trusted system paths, not user input, so we don't escape them
+    # Escaping would break Windows paths (C:/Windows/Fonts would become C\:/Windows/Fonts)
+    if font_path:
+        filter_parts.insert(1, f"fontfile={font_path}")
+
+    filter_str = ":".join(filter_parts)
+
+    run([
+        FFMPEG_CMD, "-y",
+        "-i", str(input_mp4),
+        "-vf", filter_str,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF),
+        "-pix_fmt", "yuv420p",
+        "-an",
+        str(output_mp4)
+    ])
 
 # -------------------- freeze + compose --------------------
 
@@ -662,6 +885,8 @@ def main():
                 print("Using text-only slate")
 
     processed = []
+    seen_sections = set()  # Track sections we've already shown overlay for
+
     for i, c in enumerate(data.get("clips", []), 1):
         # Resolve std_file if present, otherwise use default path
         std_path = resolve_path(base, c.get("std_file"))
@@ -689,6 +914,36 @@ def main():
                               float(c.get("end_trim", 0.0)),
                               spot_frame_std, work,
                               still_dur=1.25)
+
+        # Apply section lower-third overlay if this is the first clip of a new section
+        clip_section = c.get("section")
+        if clip_section and clip_section not in seen_sections:
+            # Validate section is in the predefined list
+            if clip_section not in SECTIONS:
+                print(f"Warning: Invalid section '{clip_section}' in clip {i:02d}, skipping overlay")
+                clip_section = None
+
+        if clip_section and clip_section not in seen_sections:
+            print(f"[section] Adding lower-third overlay: {clip_section}")
+            out_with_section = work / f"clip{i:02d}_sectioned.mp4"
+            # Calculate overlay duration: clamp between OVERLAY_DURATION_MIN and OVERLAY_DURATION_DEFAULT,
+            # but never exceed clip_duration to avoid overlay extending beyond the clip.
+            # For very short clips, use the clip duration minus margin, or the full clip if too short.
+            clip_dur = duration_of(out)
+            # First clamp to reasonable bounds, then ensure it never exceeds clip duration
+            overlay_dur = min(OVERLAY_DURATION_DEFAULT, max(OVERLAY_DURATION_MIN, clip_dur - OVERLAY_MARGIN))
+            overlay_dur = min(overlay_dur, clip_dur)  # Critical: never exceed clip duration
+
+            # Add error handling for overlay generation
+            try:
+                add_lower_third_overlay(out, out_with_section, clip_section, duration=overlay_dur)
+                out = out_with_section
+                seen_sections.add(clip_section)
+            except (subprocess.CalledProcessError, ValueError, OSError, IOError) as e:
+                print(f"Warning: Failed to add overlay for '{clip_section}' on clip {i:02d}: {e}")
+                print(f"Continuing with clip without overlay...")
+                # Continue with original clip without overlay
+
         processed.append(out)
 
     if not processed:

@@ -25,6 +25,9 @@ import tkinter as tk
 from tkinter import messagebox
 from typing import List, Tuple, Optional
 
+# Import shared constants
+from constants import SECTIONS, SECTION_COLORS, OVERLAY_DEFAULT_COLOR
+
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
@@ -198,12 +201,11 @@ class ReorderGUI(tk.Tk):
         right.columnconfigure(0, weight=1)
 
         tk.Label(left, text="Clips (drag to reorder):", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        self.listbox = DragListbox(left, on_reorder=self.handle_drag_reorder, width=40, height=24)
+        self.listbox = DragListbox(left, on_reorder=self.handle_drag_reorder, width=44, height=24)
         self.listbox.pack(fill="y", expand=False)
 
-        for c in self.clips:
-            name = pathlib.Path(c.get("file","") or c.get("std_file","")).name or "(unnamed)"
-            self.listbox.insert(tk.END, name)
+        # Populate listbox with section badges
+        self.refresh_listbox()
 
         btns = tk.Frame(left)
         btns.pack(fill="x", pady=(8,0))
@@ -215,6 +217,15 @@ class ReorderGUI(tk.Tk):
         remove_btn.grid(row=0, column=4, padx=2)
         tk.Button(btns, text="Save Order", command=self.save_order).grid(row=0, column=5, padx=12)
         tk.Button(btns, text="Close", command=self.on_closing).grid(row=0, column=6, padx=2)
+
+        # Section assignment
+        section_frame = tk.Frame(left)
+        section_frame.pack(fill="x", pady=(8,0))
+        tk.Label(section_frame, text="Section:", font=("Segoe UI", 9)).pack(side="left")
+        self.section_var = tk.StringVar(value="(none)")
+        self.section_menu = tk.OptionMenu(section_frame, self.section_var, "(none)", *SECTIONS, command=self.set_section)
+        self.section_menu.config(width=12)
+        self.section_menu.pack(side="left", padx=4)
 
         # Preview pane
         tk.Label(right, text="Preview:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w")
@@ -238,6 +249,67 @@ class ReorderGUI(tk.Tk):
     def current_selection(self) -> Optional[int]:
         sel = self.listbox.curselection()
         return sel[0] if sel else None
+
+    def get_clip_display_name(self, clip: dict) -> str:
+        """Get display name for clip with section badge."""
+        name = pathlib.Path(clip.get("file","") or clip.get("std_file","")).name or "(unnamed)"
+        section = clip.get("section")
+        if section:
+            return f"[{section}] {name}"
+        return name
+
+    def refresh_listbox(self):
+        """Refresh listbox display with section badges and colors."""
+        current_sel = self.current_selection()
+        self.listbox.delete(0, tk.END)
+        for i, c in enumerate(self.clips):
+            display_name = self.get_clip_display_name(c)
+            self.listbox.insert(tk.END, display_name)
+            # Apply color based on section
+            section = c.get("section")
+            if section and section in SECTION_COLORS:
+                self.listbox.itemconfig(i, fg=SECTION_COLORS[section])
+            else:
+                # Use neutral default color (dark theme safe)
+                self.listbox.itemconfig(i, fg=OVERLAY_DEFAULT_COLOR)
+        # Restore selection
+        if current_sel is not None and current_sel < len(self.clips):
+            self.listbox.selection_set(current_sel)
+
+    def set_section(self, value: str):
+        """Assign section to currently selected clip."""
+        i = self.current_selection()
+        if i is None:
+            return
+
+        # Validate section value
+        section = None if value == "(none)" else value
+        if section is not None and section not in SECTIONS:
+            messagebox.showwarning(
+                "Invalid Section",
+                f"'{section}' is not a valid section.\nValid sections: {', '.join(SECTIONS)}"
+            )
+            return
+
+        self.clips[i]["section"] = section
+        self.is_modified = True
+        self.update_title()
+
+        # Optimized: Only update the changed item instead of rebuilding entire list
+        display_name = self.get_clip_display_name(self.clips[i])
+        self.listbox.delete(i)
+        self.listbox.insert(i, display_name)
+
+        # Apply color based on section
+        if section and section in SECTION_COLORS:
+            self.listbox.itemconfig(i, fg=SECTION_COLORS[section])
+        else:
+            # Reset to neutral default color (dark theme safe)
+            self.listbox.itemconfig(i, fg=OVERLAY_DEFAULT_COLOR)
+
+        # Restore selection
+        self.listbox.selection_set(i)
+        self.listbox.activate(i)
 
     def handle_drag_reorder(self, old_index: int, new_index: int):
         """Handle reordering of clips data when listbox items are dragged"""
@@ -263,13 +335,19 @@ class ReorderGUI(tk.Tk):
         i = self.current_selection()
         if i is None:
             self.preview_area.reset()
+            self.section_var.set("(none)")
             return
 
         try:
             # Validate bounds to prevent IndexError
             if i >= len(self.clips):
                 self.preview_area.reset()
+                self.section_var.set("(none)")
                 return
+
+            # Update section dropdown to show current clip's section
+            section = self.clips[i].get("section") or "(none)"
+            self.section_var.set(section)
 
             clip_name = self.listbox.get(i)
             path = resolve_video_path(self.base, self.clips[i])
@@ -283,10 +361,28 @@ class ReorderGUI(tk.Tk):
     def move_up(self):
         i = self.current_selection()
         if i is None or i == 0: return
+        # Swap clips in data
         self.clips[i-1], self.clips[i] = self.clips[i], self.clips[i-1]
-        txt = self.listbox.get(i)
+        # Optimize: only swap the two affected items instead of full refresh
+        item_above = self.listbox.get(i-1)
+        item_current = self.listbox.get(i)
+        self.listbox.delete(i-1)
+        self.listbox.insert(i-1, item_current)
         self.listbox.delete(i)
-        self.listbox.insert(i-1, txt)
+        self.listbox.insert(i, item_above)
+        # Restore colors
+        section_above = self.clips[i-1].get("section")
+        section_current = self.clips[i].get("section")
+        if section_above and section_above in SECTION_COLORS:
+            self.listbox.itemconfig(i-1, fg=SECTION_COLORS[section_above])
+        else:
+            self.listbox.itemconfig(i-1, fg=OVERLAY_DEFAULT_COLOR)
+        if section_current and section_current in SECTION_COLORS:
+            self.listbox.itemconfig(i, fg=SECTION_COLORS[section_current])
+        else:
+            self.listbox.itemconfig(i, fg=OVERLAY_DEFAULT_COLOR)
+        # Update selection
+        self.listbox.selection_clear(0, tk.END)
         self.listbox.selection_set(i-1)
         self.is_modified = True
         self.update_title()
@@ -294,10 +390,28 @@ class ReorderGUI(tk.Tk):
     def move_down(self):
         i = self.current_selection()
         if i is None or i >= len(self.clips)-1: return
+        # Swap clips in data
         self.clips[i+1], self.clips[i] = self.clips[i], self.clips[i+1]
-        txt = self.listbox.get(i)
+        # Optimize: only swap the two affected items instead of full refresh
+        item_current = self.listbox.get(i)
+        item_below = self.listbox.get(i+1)
         self.listbox.delete(i)
-        self.listbox.insert(i+1, txt)
+        self.listbox.insert(i, item_below)
+        self.listbox.delete(i+1)
+        self.listbox.insert(i+1, item_current)
+        # Restore colors
+        section_current = self.clips[i].get("section")
+        section_below = self.clips[i+1].get("section")
+        if section_current and section_current in SECTION_COLORS:
+            self.listbox.itemconfig(i, fg=SECTION_COLORS[section_current])
+        else:
+            self.listbox.itemconfig(i, fg=OVERLAY_DEFAULT_COLOR)
+        if section_below and section_below in SECTION_COLORS:
+            self.listbox.itemconfig(i+1, fg=SECTION_COLORS[section_below])
+        else:
+            self.listbox.itemconfig(i+1, fg=OVERLAY_DEFAULT_COLOR)
+        # Update selection
+        self.listbox.selection_clear(0, tk.END)
         self.listbox.selection_set(i+1)
         self.is_modified = True
         self.update_title()
@@ -309,9 +423,7 @@ class ReorderGUI(tk.Tk):
             pairs.append((name, c))
         pairs.sort(key=lambda x: x[0].lower())
         self.clips = [c for _, c in pairs]
-        self.listbox.delete(0, tk.END)
-        for name, _ in pairs:
-            self.listbox.insert(tk.END, name)
+        self.refresh_listbox()
         self.is_modified = True
         self.update_title()
 
