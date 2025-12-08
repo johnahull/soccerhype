@@ -674,15 +674,88 @@ def debug_mark(std_mp4: pathlib.Path, frame_idx: int, px: int, py: int, work: pa
     im.save(out)
     print(f"🔍 Debug saved: {out}")
 
+# -------------------- zoom helpers --------------------
+
+def transform_for_zoom(mx: int, my: int, radius: int, video_w: int, video_h: int, zoom: float) -> tuple[int, int, int]:
+    """
+    Transform marker coordinates and radius for center-zoomed output.
+
+    When zooming centered on video center, the marker position shifts relative
+    to the center by the zoom factor.
+
+    Args:
+        mx, my: Marker position in original 1920-wide space
+        radius: Ring radius in original space
+        video_w, video_h: Video dimensions (typically 1920x1080)
+        zoom: Zoom factor (1.0 = no zoom)
+
+    Returns:
+        (new_mx, new_my, new_radius): Transformed values for zoomed output
+    """
+    if zoom <= 1.0:
+        return mx, my, radius
+
+    cx, cy = video_w / 2, video_h / 2
+
+    # Marker scales relative to center
+    new_mx = int(round(cx + (mx - cx) * zoom))
+    new_my = int(round(cy + (my - cy) * zoom))
+
+    # Radius scales linearly
+    new_radius = int(round(radius * zoom))
+
+    return new_mx, new_my, new_radius
+
+
+def build_zoom_filter(video_w: int, video_h: int, zoom: float) -> str:
+    """
+    Build FFmpeg filter string for center-crop zoom.
+
+    Crops to (w/zoom, h/zoom) centered on video center,
+    then scales back to original dimensions.
+
+    Args:
+        video_w, video_h: Original video dimensions
+        zoom: Zoom factor (1.0 = no zoom)
+
+    Returns:
+        FFmpeg filter string, or empty string if no zoom
+    """
+    if zoom <= 1.0:
+        return ""
+
+    # Crop dimensions (ensure even for codec compatibility)
+    crop_w = int(video_w / zoom) & ~1
+    crop_h = int(video_h / zoom) & ~1
+
+    # Center crop: crop=w:h:x:y where x,y are top-left of crop region
+    crop_x = (video_w - crop_w) // 2
+    crop_y = (video_h - crop_h) // 2
+
+    # Crop then scale back to original size, normalize SAR for concat compatibility
+    return f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale={video_w}:{video_h},setsar=1"
+
+
 # -------------------- segments (video-only CFR 30) --------------------
 
-def build_video_frames(std_mp4: pathlib.Path, start_f: int, end_f: int, out_v: pathlib.Path):
+def build_video_frames(std_mp4: pathlib.Path, start_f: int, end_f: int, out_v: pathlib.Path, zoom: float = 1.0):
+    """Extract video frames with optional zoom applied."""
     if end_f < start_f:
         run([FFMPEG_CMD,"-y","-f","lavfi","-i","color=c=black:s=1920x1080","-t","0.0334",
              "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf",str(CRF),"-pix_fmt","yuv420p","-an",str(out_v)])
         return
-    sel = f"select='between(n\\,{start_f}\\,{end_f})',setpts=N/FRAME_RATE/TB,fps={FPS}"
-    run([FFMPEG_CMD,"-y","-i",str(std_mp4),"-vf",sel,
+
+    # Build filter chain
+    sel = f"select='between(n\\,{start_f}\\,{end_f})',setpts=N/FRAME_RATE/TB"
+
+    # Add zoom filter if zooming
+    if zoom > 1.0:
+        zoom_filter = build_zoom_filter(PROXY_W, 1080, zoom)
+        vf = f"{sel},{zoom_filter},fps={FPS}"
+    else:
+        vf = f"{sel},fps={FPS}"
+
+    run([FFMPEG_CMD,"-y","-i",str(std_mp4),"-vf",vf,
          "-c:v","libx264","-preset","veryfast","-crf",str(CRF),"-pix_fmt","yuv420p","-an",str(out_v)])
 
 def concat_videos(files: list[pathlib.Path], out_path: pathlib.Path):
@@ -777,42 +850,66 @@ def add_lower_third_overlay(input_mp4: pathlib.Path, output_mp4: pathlib.Path,
 
 def make_freeze_with_spot(std_mp4: pathlib.Path, px: int, py: int, radius: int,
                           out_mp4: pathlib.Path, start_trim: float, end_trim: float,
-                          spot_frame: int, work: pathlib.Path, still_dur: float = 1.25):
+                          spot_frame: int, work: pathlib.Path, zoom: float = 1.0, still_dur: float = 1.25):
+    """Create clip with freeze frame and ring overlay, with optional zoom.
+
+    Args:
+        std_mp4: Path to standardized proxy video
+        px, py: Marker position in 1920-wide space
+        radius: Ring radius in original space
+        out_mp4: Output video path
+        start_trim, end_trim: Trim amounts in seconds
+        spot_frame: Frame number for freeze
+        work: Working directory for temp files
+        zoom: Zoom factor (1.0 = no zoom, up to 2.0)
+        still_dur: Duration of freeze frame in seconds
+    """
     fps = proxy_fps(std_mp4)
     total_f = proxy_frame_count(std_mp4)
     start_f = to_frame(start_trim, fps)
     end_f_cut = total_f - 1 - to_frame(end_trim, fps)
     spot_f = max(start_f, min(int(spot_frame), end_f_cut))
-    print(f"[clip] fps={fps:.3f} total_f={total_f} start_f={start_f} spot_f={spot_f} end_f={end_f_cut}")
+    print(f"[clip] fps={fps:.3f} total_f={total_f} start_f={start_f} spot_f={spot_f} end_f={end_f_cut} zoom={zoom:.2f}x")
 
     debug_mark(std_mp4, spot_f, px, py, work, out_mp4.stem)
 
-    # Freeze frame -> PNG
-    frame_png  = work / (out_mp4.stem + "_frame.png")
-    sel = f"select='eq(n\\,{spot_f})',setpts=N/FRAME_RATE/TB,fps={FPS}"
-    run([FFMPEG_CMD,"-y","-i",str(std_mp4),"-vf",sel,"-vsync","vfr","-frames:v","1",str(frame_png)])
+    # Get video dimensions for zoom calculations
+    video_h = 1080  # Assuming 1080p proxy
 
-    # Composite ring
+    # Transform marker and radius for zoom
+    zoomed_px, zoomed_py, zoomed_radius = transform_for_zoom(px, py, radius, PROXY_W, video_h, zoom)
+
+    # Freeze frame -> PNG (with zoom applied)
+    frame_png = work / (out_mp4.stem + "_frame.png")
+    sel = f"select='eq(n\\,{spot_f})',setpts=N/FRAME_RATE/TB"
+    if zoom > 1.0:
+        zoom_filter = build_zoom_filter(PROXY_W, video_h, zoom)
+        vf = f"{sel},{zoom_filter}"
+    else:
+        vf = sel
+    run([FFMPEG_CMD,"-y","-i",str(std_mp4),"-vf",vf,"-vsync","vfr","-frames:v","1",str(frame_png)])
+
+    # Composite ring at TRANSFORMED position
     ring_png = work / f"{out_mp4.stem}_ring.png"
-    make_ring_png(ring_png, max(6, int(radius)))
+    make_ring_png(ring_png, max(6, zoomed_radius))
     frame_annot = work / (out_mp4.stem + "_frame_annot.png")
-    pil_composite_ring_on_png(frame_png, ring_png, px, py, frame_annot)
+    pil_composite_ring_on_png(frame_png, ring_png, zoomed_px, zoomed_py, frame_annot)
 
-    # 1.25s still
+    # 1.25s still (setsar=1 ensures SAR matches zoomed video clips for concat)
     still = work / (out_mp4.stem + "_still.mp4")
     run([FFMPEG_CMD,"-y","-loop","1","-i",str(frame_annot),"-t",str(still_dur),
-         "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf",str(CRF),"-pix_fmt","yuv420p","-an",str(still)])
+         "-vf","setsar=1","-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf",str(CRF),"-pix_fmt","yuv420p","-an",str(still)])
 
     parts = []
     if spot_f > start_f:
         pre_v = work / (out_mp4.stem + "_pre.mp4")
-        build_video_frames(std_mp4, start_f, spot_f - 1, pre_v)
+        build_video_frames(std_mp4, start_f, spot_f - 1, pre_v, zoom=zoom)
         parts.append(pre_v)
 
     parts.append(still)
 
     post_v = work / (out_mp4.stem + "_post.mp4")
-    build_video_frames(std_mp4, spot_f, end_f_cut, post_v)
+    build_video_frames(std_mp4, spot_f, end_f_cut, post_v, zoom=zoom)
     parts.append(post_v)
 
     concat_videos(parts, out_mp4)
@@ -908,11 +1005,15 @@ def main():
             fps = proxy_fps(std_path)
             spot_frame_std = to_frame(float(c.get("spot_time", 0.0)), fps)
 
+        # Read zoom factor (default 1.0 for backward compatibility)
+        zoom_std = float(c.get("zoom_std", 1.0))
+
         out = work / f"clip{i:02d}_done.mp4"
         make_freeze_with_spot(std_path, mx, my, radius_std, out,
                               float(c.get("start_trim", 0.0)),
                               float(c.get("end_trim", 0.0)),
                               spot_frame_std, work,
+                              zoom=zoom_std,
                               still_dur=1.25)
 
         # Apply section lower-third overlay if this is the first clip of a new section

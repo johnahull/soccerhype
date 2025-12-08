@@ -30,8 +30,10 @@
 #   + / - .......... Increase / decrease ring radius (std px)
 #   Mouse wheel .... Adjust ring radius (Shift+wheel = larger steps)
 #   1..5 ........... Radius presets (40, 60, 72, 90, 120 px)
+#   < / > .......... Decrease / increase zoom (1.0x to 2.0x)
+#   0 .............. Reset zoom to 1.0x
 #   Left click ..... Set ring center at cursor (standardized coords)
-#   r .............. Reset marker & trims & spot
+#   r .............. Reset marker & trims & spot & zoom
 #   Enter .......... Accept this clip (uses current frame if you never pressed 's')
 #   q / Esc ........ Skip this clip
 #
@@ -66,6 +68,9 @@ FPS = 30
 CRF = 18
 RADIUS_MIN = 6
 RADIUS_MAX = 600
+ZOOM_MIN = 1.0
+ZOOM_MAX = 2.0
+ZOOM_STEP = 0.1
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".avi"}
 
 def run(cmd: list[str]):
@@ -134,10 +139,11 @@ def get_meta(cap):
 def clamp(v, a, b): return max(a, min(b, v))
 
 def draw_hud(frame, t, fps, frame_idx, total_frames, rate, paused,
-             radius_disp, start_trim, end_trim, spot_time, spot_frame, marker_disp):
+             radius_disp, start_trim, end_trim, spot_time, spot_frame, marker_disp, zoom=1.0):
     overlay = frame.copy()
     line1 = f"t={t:.2f}s  fps={fps:.2f}  frame={frame_idx}/{max(0,total_frames-1)}  rate={rate:.2f}x  {'PAUSED' if paused else 'PLAY'}"
-    line2 = f"radius={radius_disp}px  start_trim={start_trim:.2f}s  end_trim={end_trim:.2f}s  spot={spot_time:.2f}s  spot_f={spot_frame if spot_frame is not None else '-'}"
+    zoom_str = f"zoom={zoom:.1f}x  " if zoom > 1.0 else ""
+    line2 = f"{zoom_str}radius={radius_disp}px  start_trim={start_trim:.2f}s  end_trim={end_trim:.2f}s  spot={spot_time:.2f}s  spot_f={spot_frame if spot_frame is not None else '-'}"
     cv2.putText(overlay, line1, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2, cv2.LINE_AA)
     cv2.putText(overlay, line2, (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2, cv2.LINE_AA)
     if marker_disp:
@@ -232,6 +238,7 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
     spot_frame_std = None
     start_trim = 0.0
     end_trim = 0.0
+    zoom = 1.0
 
     def on_mouse(event, x, y, flags, param):
         nonlocal marker, radius
@@ -253,7 +260,7 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
     print(f"\n=== Marking (proxy): {orig_path.name} ===")
     print("Space: play/pause | ,/. frame step | ←/→ ±0.5s | ↑/↓ ±5s | [/] speed | g goto | s set spot | a/b trims")
     print("+/- or mouse wheel to change radius (Shift+wheel = larger step), presets 1=40 2=60 3=72 4=90 5=120")
-    print("Click to set ring | r reset | Enter accept | q/Esc skip")
+    print("</> zoom in/out (1.0-2.0x) | 0 reset zoom | Click to set ring | r reset | Enter accept | q/Esc skip")
 
     while True:
         cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
@@ -268,12 +275,40 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
 
         t = current_frame / fps if fps > 0 else 0.0
         disp = cv2.resize(frame, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
+
+        # Draw zoom preview overlay (darken area outside zoom region)
+        if zoom > 1.0:
+            visible_w = int(w / zoom)
+            visible_h = int(h / zoom)
+            cx, cy = w // 2, h // 2
+            left = cx - visible_w // 2
+            top = cy - visible_h // 2
+            right = cx + visible_w // 2
+            bottom = cy + visible_h // 2
+
+            # Convert to display coordinates
+            left_d = int(left * scale)
+            top_d = int(top * scale)
+            right_d = int(right * scale)
+            bottom_d = int(bottom * scale)
+
+            # Create semi-transparent overlay outside zoom area
+            overlay = disp.copy()
+            cv2.rectangle(overlay, (0, 0), (disp_w, top_d), (0, 0, 0), -1)  # Top
+            cv2.rectangle(overlay, (0, bottom_d), (disp_w, disp_h), (0, 0, 0), -1)  # Bottom
+            cv2.rectangle(overlay, (0, top_d), (left_d, bottom_d), (0, 0, 0), -1)  # Left
+            cv2.rectangle(overlay, (right_d, top_d), (disp_w, bottom_d), (0, 0, 0), -1)  # Right
+            cv2.addWeighted(overlay, 0.5, disp, 0.5, 0, disp)
+
+            # Draw border around visible area
+            cv2.rectangle(disp, (left_d, top_d), (right_d, bottom_d), (0, 255, 255), 2)
+
         marker_disp = (int(round(marker[0] * scale)), int(round(marker[1] * scale)))
         radius_disp = int(round(radius * scale))
         disp = draw_hud(disp, t, fps, current_frame, total_frames,
                         rate_options[rate_idx], not playing,
                         radius_disp, start_trim, end_trim,
-                        spot_time, spot_frame_std, marker_disp)
+                        spot_time, spot_frame_std, marker_disp, zoom)
         cv2.imshow(win, disp)
 
         if playing:
@@ -331,16 +366,37 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
             presets = {ord('1'):40, ord('2'):60, ord('3'):72, ord('4'):90, ord('5'):120}
             radius = presets[key]
             print(f"radius preset -> {radius}px")
+        elif key == ord('<') or key == ord(',') and playing:  # < key (zoom out)
+            zoom = round(clamp(zoom - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX), 1)
+            print(f"zoom = {zoom:.1f}x")
+        elif key == ord('>') or key == ord('.') and playing:  # > key (zoom in)
+            zoom = round(clamp(zoom + ZOOM_STEP, ZOOM_MIN, ZOOM_MAX), 1)
+            print(f"zoom = {zoom:.1f}x")
+        elif key == ord('0'):  # Reset zoom
+            zoom = 1.0
+            print("zoom reset to 1.0x")
         elif key in (ord('r'), ord('R')):
             marker = (w//2, h//2); radius = 72
             start_trim = 0.0; end_trim = 0.0
             spot_time = 0.0; spot_frame_std = None
-            print("Reset marker, trims, and spot.")
+            zoom = 1.0
+            print("Reset marker, trims, spot, and zoom.")
         elif key == 13:  # Enter
             if spot_frame_std is None:
                 spot_frame_std = current_frame
                 spot_time = current_frame / fps if fps > 0 else 0.0
                 print(f"(auto) spot_time = {spot_time:.3f}s  |  spot_frame_std = {spot_frame_std}")
+            # Warn if marker may be outside zoomed region
+            if zoom > 1.0:
+                visible_w = int(w / zoom)
+                visible_h = int(h / zoom)
+                cx, cy = w // 2, h // 2
+                left = cx - visible_w // 2
+                right = cx + visible_w // 2
+                top = cy - visible_h // 2
+                bottom = cy + visible_h // 2
+                if not (left <= marker[0] <= right and top <= marker[1] <= bottom):
+                    print(f"WARNING: Marker at ({marker[0]}, {marker[1]}) may be outside zoomed region!")
             cap.release()
             cv2.destroyWindow(win)
             return {
@@ -353,6 +409,7 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
                 "end_trim": float(end_trim),
                 "spot_time": float(spot_time),
                 "spot_frame_std": int(spot_frame_std),
+                "zoom_std": float(zoom),
             }
 
 def main():
