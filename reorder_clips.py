@@ -256,7 +256,8 @@ class ReorderGUI(tk.Tk):
     def auto_sync_on_startup(self):
         """Automatically sync clips when the window opens."""
         try:
-            result = sync_clips(self.base, save=True)
+            # auto_remove=False to prevent data loss - missing files are flagged
+            result = sync_clips(self.base, save=True, auto_remove=False)
 
             # Reload project if changes were made
             if result["added"] or result["removed"]:
@@ -266,8 +267,10 @@ class ReorderGUI(tk.Tk):
 
                 # Show notification toast
                 message = get_sync_summary_message(result)
-                self.show_toast(message)
-        except (FileNotFoundError, ValueError) as e:
+                if result["removed"]:
+                    message += "\n(Missing files kept - use Remove to delete)"
+                self.show_toast(message, duration=4000)
+        except (FileNotFoundError, ValueError):
             # Silently ignore sync errors on startup - project may not be fully set up
             pass
 
@@ -340,14 +343,19 @@ class ReorderGUI(tk.Tk):
         """Get display name for clip with marking status and section badge.
 
         Format: [status] [section] filename
-        - Status: ✓ = marked (has complete marking data), ○ = unmarked
+        - Status: ✓ = marked, ○ = unmarked, ⚠ = file missing
         - Section: Optional category badge like [Goals], [Assists]
         """
         name = pathlib.Path(clip.get("file","") or clip.get("std_file","")).name or "(unnamed)"
         section = clip.get("section")
 
-        # Marking status indicator
-        status = "✓" if is_clip_marked(clip) else "○"
+        # Marking/missing status indicator
+        if clip.get("_missing"):
+            status = "⚠"
+        elif is_clip_marked(clip):
+            status = "✓"
+        else:
+            status = "○"
 
         if section:
             return f"{status} [{section}] {name}"

@@ -69,7 +69,7 @@ def create_placeholder_clip(file_path: pathlib.Path) -> Dict[str, Any]:
     }
 
 
-def sync_clips(base: pathlib.Path, save: bool = True) -> Dict[str, List[str]]:
+def sync_clips(base: pathlib.Path, save: bool = True, auto_remove: bool = False) -> Dict[str, List[str]]:
     """Sync clips_in/ folder with project.json.
 
     Compares current clips_in/ contents with project.json clips list:
@@ -80,6 +80,8 @@ def sync_clips(base: pathlib.Path, save: bool = True) -> Dict[str, List[str]]:
     Args:
         base: Path to the athlete directory (contains clips_in/ and project.json)
         save: If True, save the updated project.json (default: True)
+        auto_remove: If True, silently remove clips whose files are missing.
+                     If False (default), keep clip data with _missing flag to prevent data loss.
 
     Returns:
         Dictionary with sync results:
@@ -124,15 +126,23 @@ def sync_clips(base: pathlib.Path, save: bool = True) -> Dict[str, List[str]]:
     removed_filenames = existing_filenames - current_filenames
     unchanged_filenames = current_filenames & existing_filenames
 
-    # Build new clips list preserving order of unchanged clips
+    # Build new clips list preserving order of existing clips
     # then appending new clips at the end
     new_clips: List[Dict[str, Any]] = []
 
-    # First, add unchanged clips in their original order
+    # First, preserve existing clips in their original order
     for clip in existing_clips:
         filename = get_clip_filename(clip)
         if filename in unchanged_filenames:
+            # Clip still exists - keep it
             new_clips.append(clip)
+        elif filename in removed_filenames and not auto_remove:
+            # Clip file missing but auto_remove=False - keep clip data (preserve marks)
+            # Mark as missing so UI can warn user
+            clip_copy = clip.copy()
+            clip_copy["_missing"] = True
+            new_clips.append(clip_copy)
+        # If auto_remove=True, removed clips are silently dropped
 
     # Then append new clips
     for file_path in current_files:

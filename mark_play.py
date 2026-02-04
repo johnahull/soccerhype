@@ -434,10 +434,8 @@ def main():
     ap.add_argument("--include-intro", action="store_true", help="Include intro screen")
     ap.add_argument("--intro-media", type=str, help="Path to intro media file (relative to athlete directory)")
     ap.add_argument("--overwrite", action="store_true", help="Overwrite existing project without asking")
-    ap.add_argument("--new-only", action="store_true", default=True,
-                    help="Only mark unmarked clips (default when project.json exists)")
     ap.add_argument("--all", action="store_true",
-                    help="Re-mark all clips, ignoring existing marks")
+                    help="Re-mark all clips, ignoring existing marks (default: only mark new/unmarked)")
 
     args = ap.parse_args()
 
@@ -480,7 +478,12 @@ def main():
 
     # If project exists, handle accordingly
     if project_path.exists():
-        existing_project = json.loads(project_path.read_text())
+        try:
+            existing_project = json.loads(project_path.read_text())
+        except json.JSONDecodeError as e:
+            print(f"Error: project.json is corrupted: {e}")
+            print("Please fix or delete the file and try again.")
+            sys.exit(1)
 
         if mark_all:
             # --all flag: confirm overwrite
