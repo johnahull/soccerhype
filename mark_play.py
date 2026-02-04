@@ -504,7 +504,13 @@ def main():
         pass
 
     # Handle intro and player info
-    if gui_mode:
+    # In new-only mode with existing project, use existing data
+    if existing_project and not mark_all:
+        # Use existing player/intro data from project
+        include_intro = existing_project.get("include_intro", True)
+        player = existing_project.get("player", {})
+        intro_media_path = existing_project.get("intro_media")
+    elif gui_mode:
         include_intro = args.include_intro
         player = {}
         intro_media_path = args.intro_media if args.intro_media else None
