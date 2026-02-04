@@ -9,9 +9,12 @@
 # - Detects removed clips (in project but not in folder) -> removes entries
 # - Preserves existing marking data for unchanged clips
 #
+# Supports both v1 (legacy) and v2 (multi-project) folder structures.
+# For v2, pass the project directory (not athlete directory).
+#
 # Usage:
 #   from clip_sync import sync_clips, is_clip_marked
-#   result = sync_clips(athlete_base_path)
+#   result = sync_clips(project_dir)  # Works for both v1 and v2
 #   # result = {"added": [...], "removed": [...], "unchanged": [...]}
 
 from __future__ import annotations
@@ -222,6 +225,14 @@ if __name__ == "__main__":
     import argparse
     import sys
 
+    # Import structure utilities for CLI
+    from utils.structure import (
+        is_v2_structure,
+        resolve_athlete_dir,
+        resolve_project_dir,
+        list_projects,
+    )
+
     ROOT = pathlib.Path.cwd()
     ATHLETES = ROOT / "athletes"
 
@@ -237,7 +248,11 @@ if __name__ == "__main__":
             return None
         print("\nSelect an athlete:")
         for i, p in enumerate(options, 1):
-            print(f"  {i}. {p.name}")
+            if is_v2_structure(p):
+                projects = list_projects(p)
+                print(f"  {i}. {p.name} ({len(projects)} project{'s' if len(projects) != 1 else ''})")
+            else:
+                print(f"  {i}. {p.name}")
         print("  q. Quit")
         while True:
             choice = input("Enter number: ").strip().lower()
@@ -249,26 +264,92 @@ if __name__ == "__main__":
                     return options[idx-1]
             print("Invalid choice. Try again.")
 
+    def choose_project_interactive(athlete_dir: pathlib.Path) -> pathlib.Path | None:
+        projects = list_projects(athlete_dir)
+        if not projects:
+            print(f"No projects found for {athlete_dir.name}")
+            return None
+        if len(projects) == 1:
+            print(f"Using project: {projects[0].name}")
+            return projects[0]
+        print(f"\nSelect a project for {athlete_dir.name}:")
+        for i, p in enumerate(projects, 1):
+            print(f"  {i}. {p.name}")
+        print("  q. Quit")
+        while True:
+            choice = input("Enter number: ").strip().lower()
+            if choice in ("q", "quit", "exit"):
+                return None
+            if choice.isdigit():
+                idx = int(choice)
+                if 1 <= idx <= len(projects):
+                    return projects[idx - 1]
+            print("Invalid choice. Try again.")
+
     ap = argparse.ArgumentParser(
         description="Sync clips_in/ folder with project.json"
     )
     ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
-    ap.add_argument("--dir", type=str, help="Full path to athlete folder")
+    ap.add_argument("--project", type=str, help="Project name (for v2 multi-project athletes)")
+    ap.add_argument("--dir", type=str, help="Full path to athlete or project folder")
     ap.add_argument("--dry-run", action="store_true", help="Show what would change without saving")
     args = ap.parse_args()
 
-    # Resolve athlete directory
+    # Resolve project directory (where clips_in/ and project.json are)
+    athlete_dir = None
+    project_dir = None
+
     if args.dir:
-        base = pathlib.Path(args.dir).resolve()
+        given_path = pathlib.Path(args.dir).resolve()
+        if not given_path.exists() or not given_path.is_dir():
+            print(f"Invalid directory: {given_path}")
+            sys.exit(1)
+        athlete_dir = resolve_athlete_dir(given_path)
+        if athlete_dir is None:
+            print(f"Could not determine athlete from path: {given_path}")
+            sys.exit(1)
+        if is_v2_structure(athlete_dir):
+            project_dir = resolve_project_dir(given_path)
+            if project_dir is None:
+                project_dir = choose_project_interactive(athlete_dir)
+                if project_dir is None:
+                    sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
     elif args.athlete:
-        base = (ATHLETES / args.athlete).resolve()
+        athlete_dir = (ATHLETES / args.athlete).resolve()
+        if not athlete_dir.exists() or not athlete_dir.is_dir():
+            print(f"Invalid athlete directory: {athlete_dir}")
+            sys.exit(1)
+        if is_v2_structure(athlete_dir):
+            if args.project:
+                project_dir = athlete_dir / "projects" / args.project
+                if not project_dir.exists():
+                    print(f"Project not found: {project_dir}")
+                    sys.exit(1)
+            else:
+                project_dir = choose_project_interactive(athlete_dir)
+                if project_dir is None:
+                    sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
     else:
-        base = choose_athlete_interactive()
-        if base is None:
+        athlete_dir = choose_athlete_interactive()
+        if athlete_dir is None:
             sys.exit(0)
+        if is_v2_structure(athlete_dir):
+            project_dir = choose_project_interactive(athlete_dir)
+            if project_dir is None:
+                sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
+    base = project_dir
 
     if not base.exists() or not base.is_dir():
-        print(f"Invalid athlete directory: {base}")
+        print(f"Invalid project directory: {base}")
         sys.exit(1)
 
     try:
