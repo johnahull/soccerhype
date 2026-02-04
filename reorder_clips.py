@@ -62,7 +62,7 @@ def choose_athlete_interactive() -> pathlib.Path | None:
 def load_project(base: pathlib.Path) -> dict:
     pj = base / "project.json"
     if not pj.exists():
-        raise FileNotFoundError(f"{pj} not found. Run mark_play.py first.")
+        raise FileNotFoundError(f"{pj} not found. Run Set Profile first in the GUI or create a project.json manually.")
     return json.loads(pj.read_text())
 
 def save_project(base: pathlib.Path, data: dict):

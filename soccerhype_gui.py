@@ -25,6 +25,9 @@ from version import __version__
 # Import profile management
 from profile_manager import PlayerProfileManager, sanitize_profile_id
 
+# Import clip sync utilities for marking status
+from clip_sync import is_clip_marked
+
 
 # Import enhanced error handling
 try:
@@ -99,13 +102,21 @@ class AthleteManager:
             has_project = project_file.exists()
             has_final = final_video.exists()
 
-            # Check if profile exists (project.json with player name)
+            # Check if profile exists and clips are marked
             has_profile = False
+            all_clips_marked = False
+            clips_count = 0
+            marked_count = 0
             if has_project:
                 try:
                     import json
                     project_data = json.loads(project_file.read_text())
                     has_profile = bool(project_data.get("player", {}).get("name", "").strip())
+                    # Check marking status of all clips
+                    clips = project_data.get("clips", [])
+                    clips_count = len(clips)
+                    marked_count = sum(1 for clip in clips if is_clip_marked(clip))
+                    all_clips_marked = clips_count > 0 and marked_count == clips_count
                 except (IOError, json.JSONDecodeError):
                     pass
 
@@ -114,8 +125,11 @@ class AthleteManager:
                 "has_project": has_project,
                 "has_profile": has_profile,
                 "has_final": has_final,
-                "needs_marking": has_clips and not has_project,
-                "needs_rendering": has_project and not has_final
+                "all_clips_marked": all_clips_marked,
+                "clips_count": clips_count,
+                "marked_count": marked_count,
+                "needs_marking": has_clips and (not has_project or not all_clips_marked),
+                "needs_rendering": has_project and all_clips_marked and not has_final
             }
         return _get_status()
 
@@ -130,13 +144,21 @@ class AthleteManager:
             has_project = project_file.exists()
             has_final = final_video.exists()
 
-            # Check if profile exists (project.json with player name)
+            # Check if profile exists and clips are marked
             has_profile = False
+            all_clips_marked = False
+            clips_count = 0
+            marked_count = 0
             if has_project:
                 try:
                     import json
                     project_data = json.loads(project_file.read_text())
                     has_profile = bool(project_data.get("player", {}).get("name", "").strip())
+                    # Check marking status of all clips
+                    clips = project_data.get("clips", [])
+                    clips_count = len(clips)
+                    marked_count = sum(1 for clip in clips if is_clip_marked(clip))
+                    all_clips_marked = clips_count > 0 and marked_count == clips_count
                 except (IOError, json.JSONDecodeError):
                     pass
 
@@ -145,8 +167,11 @@ class AthleteManager:
                 "has_project": has_project,
                 "has_profile": has_profile,
                 "has_final": has_final,
-                "needs_marking": has_clips and not has_project,
-                "needs_rendering": has_project and not has_final
+                "all_clips_marked": all_clips_marked,
+                "clips_count": clips_count,
+                "marked_count": marked_count,
+                "needs_marking": has_clips and (not has_project or not all_clips_marked),
+                "needs_rendering": has_project and all_clips_marked and not has_final
             }
         except Exception:
             return {
@@ -154,6 +179,9 @@ class AthleteManager:
                 "has_project": False,
                 "has_profile": False,
                 "has_final": False,
+                "all_clips_marked": False,
+                "clips_count": 0,
+                "marked_count": 0,
                 "needs_marking": False,
                 "needs_rendering": False
             }
@@ -414,7 +442,13 @@ class SoccerHypeGUI:
             # Status indicators
             profile_status = "✓" if status["has_profile"] else "✗"
             clips_status = "✓" if status["has_clips"] else "✗"
-            marked_status = "✓" if status["has_project"] else "✗"
+            # Show marking progress: ✓ if all marked, partial count if some marked, ✗ if none
+            if status["all_clips_marked"]:
+                marked_status = "✓"
+            elif status["marked_count"] > 0:
+                marked_status = f"{status['marked_count']}/{status['clips_count']}"
+            else:
+                marked_status = "✗"
             rendered_status = "✓" if status["has_final"] else "✗"
 
             self.athlete_tree.insert("", 'end', values=(
@@ -614,11 +648,11 @@ class SoccerHypeGUI:
 
         status = self.athlete_manager.get_athlete_status(athlete_dir)
         if not status["has_project"]:
-            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nMark plays first.")
+            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nSet Profile first.")
             return
 
         self.run_script_async("reorder_clips.py", ["--dir", str(athlete_dir)],
-                             "Reordering Clips", f"Launching clip reordering for {athlete_dir.name}")
+                             "Ordering Clips", f"Launching clip ordering for {athlete_dir.name}")
 
     def render_video(self):
         """Launch render_highlight.py for selected athlete"""
@@ -628,7 +662,16 @@ class SoccerHypeGUI:
 
         status = self.athlete_manager.get_athlete_status(athlete_dir)
         if not status["has_project"]:
-            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nMark plays first.")
+            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nSet Profile first, then Order Clips and Mark Plays.")
+            return
+
+        if not status["all_clips_marked"]:
+            if status["clips_count"] == 0:
+                messagebox.showwarning("No Clips", f"No clips in project for {athlete_dir.name}\n\nUse Order Clips to sync clips from clips_in/ folder.")
+            else:
+                messagebox.showwarning("Clips Not Marked",
+                    f"{status['marked_count']}/{status['clips_count']} clips marked for {athlete_dir.name}\n\n"
+                    "Use Mark Plays to mark all clips before rendering.")
             return
 
         # Check if final video already exists
@@ -1364,7 +1407,14 @@ class BatchOperationsDialog:
 
         for athlete_dir in self.athletes:
             status = athlete_manager.get_athlete_status(athlete_dir)
-            status_text = "✓ Complete" if status["has_final"] else ("⚡ Ready" if status["has_project"] else "⚠ Needs work")
+            if status["has_final"]:
+                status_text = "✓ Complete"
+            elif status["all_clips_marked"]:
+                status_text = "⚡ Ready"
+            elif status["marked_count"] > 0:
+                status_text = f"⚠ {status['marked_count']}/{status['clips_count']} marked"
+            else:
+                status_text = "⚠ Needs work"
             self.athlete_listbox.insert(tk.END, f"{athlete_dir.name} - {status_text}")
 
     def select_all(self):
@@ -1381,7 +1431,7 @@ class BatchOperationsDialog:
         athlete_manager = AthleteManager()
         for i, athlete_dir in enumerate(self.athletes):
             status = athlete_manager.get_athlete_status(athlete_dir)
-            if status["has_project"]:
+            if status["all_clips_marked"]:
                 self.athlete_listbox.selection_set(i)
 
     def render_selected(self):
