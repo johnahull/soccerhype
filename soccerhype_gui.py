@@ -363,7 +363,7 @@ class SoccerHypeGUI:
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
         tk.Button(action_frame, text="Set Profile", command=self.set_profile,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
-        tk.Button(action_frame, text="Reorder Clips", command=self.reorder_clips,
+        tk.Button(action_frame, text="Order Clips", command=self.reorder_clips,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
         tk.Button(action_frame, text="Mark Plays", command=self.mark_plays,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
@@ -538,88 +538,8 @@ class SoccerHypeGUI:
             return
 
         if dialog.result == "save_only":
-            # Profile was saved, refresh the list
+            # Profile was saved by the dialog, refresh the list
             self.refresh_athletes()
-            return
-
-        # If user clicked "Continue to Mark Plays", save profile and launch mark_plays
-        player_data = dialog.result
-
-        # Save profile to project.json first
-        import json
-        player_dict = {
-            "name": player_data.get("name", ""),
-            "title": player_data.get("title", ""),
-            "position": player_data.get("position", ""),
-            "grad_year": player_data.get("grad_year", ""),
-            "club_team": player_data.get("club_team", ""),
-            "high_school": player_data.get("high_school", ""),
-            "height_weight": player_data.get("height_weight", ""),
-            "gpa": player_data.get("gpa", ""),
-            "email": player_data.get("email", ""),
-            "phone": player_data.get("phone", ""),
-        }
-
-        # Handle intro media
-        selected_media_path = player_data.get("selected_media")
-        intro_media = None
-        if selected_media_path:
-            media_path = pathlib.Path(selected_media_path)
-            try:
-                # Try to make path relative to athlete directory
-                intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
-            except ValueError:
-                # Path is not relative to athlete_dir (file selected from elsewhere)
-                # Check if it's actually in the intro folder but path wasn't relative
-                intro_dir = athlete_dir / "intro"
-                if media_path.exists() and intro_dir in media_path.parents:
-                    # File is in intro folder, make it relative
-                    intro_media = str(media_path.relative_to(athlete_dir))
-                elif media_path.exists() and (intro_dir / media_path.name).exists():
-                    # File with same name exists in intro folder (likely was copied)
-                    intro_media = str(pathlib.Path("intro") / media_path.name)
-                else:
-                    # File is outside athlete_dir and not in intro - log warning
-                    print(f"Warning: Media file {media_path} is outside athlete directory")
-                    intro_media = None
-
-        # Preserve existing clips if project already exists
-        existing_clips = []
-        project_path = athlete_dir / "project.json"
-        if project_path.exists():
-            try:
-                existing_data = json.loads(project_path.read_text())
-                existing_clips = existing_data.get("clips", [])
-            except (IOError, json.JSONDecodeError):
-                pass
-
-        project_data = {
-            "player": player_dict,
-            "include_intro": player_data.get("include_intro", True),
-            "intro_media": intro_media,
-            "clips": existing_clips
-        }
-
-        try:
-            # Ensure the athlete directory exists
-            athlete_dir.mkdir(parents=True, exist_ok=True)
-
-            # Write atomically using temp file
-            import tempfile
-            temp_fd, temp_path = tempfile.mkstemp(dir=athlete_dir, prefix=".project_", suffix=".json.tmp")
-            try:
-                with os.fdopen(temp_fd, 'w') as f:
-                    json.dump(project_data, f, indent=2)
-                os.replace(temp_path, project_path)
-            except:
-                if os.path.exists(temp_path):
-                    os.unlink(temp_path)
-                raise
-
-            messagebox.showinfo("Success", f"Profile saved for {player_dict['name']}")
-            self.refresh_athletes()
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save profile: {e}")
 
     def mark_plays(self):
         """Launch mark_play.py for selected athlete"""
@@ -997,12 +917,8 @@ class PlayerInfoDialog:
         button_frame = tk.Frame(main_frame)
         button_frame.pack(fill='x', pady=(10, 0))
 
-        continue_btn = tk.Button(button_frame, text="Continue to Mark Plays", command=self.accept,
-                               bg="#4CAF50", fg="white", font=("Segoe UI", 11, "bold"))
-        continue_btn.pack(fill='x', pady=(0, 8))
-
-        save_btn = tk.Button(button_frame, text="Save Info Only", command=self.save_only,
-                           bg="#FF9800", fg="white", font=("Segoe UI", 10))
+        save_btn = tk.Button(button_frame, text="Save Profile", command=self.save_only,
+                           bg="#4CAF50", fg="white", font=("Segoe UI", 11, "bold"))
         save_btn.pack(fill='x', pady=(0, 8))
 
         cancel_btn = tk.Button(button_frame, text="Cancel", command=self.cancel,
@@ -1176,30 +1092,6 @@ class PlayerInfoDialog:
         """Clear the current media selection"""
         self.selected_media_var.set("")
         self.current_media_label.config(text="No media selected")
-
-    def accept(self):
-        """Accept the form and return the data"""
-        # Validate required fields
-        if not self.name_var.get().strip():
-            messagebox.showerror("Validation Error", "Player name is required.")
-            return
-
-        self.result = {
-            "name": self.name_var.get().strip(),
-            "title": self.title_var.get().strip(),
-            "position": self.position_var.get().strip(),
-            "grad_year": self.grad_year_var.get().strip(),
-            "club_team": self.club_team_var.get().strip(),
-            "high_school": self.high_school_var.get().strip(),
-            "height_weight": self.height_weight_var.get().strip(),
-            "gpa": self.gpa_var.get().strip(),
-            "email": self.email_var.get().strip(),
-            "phone": self.phone_var.get().strip(),
-            "include_intro": self.include_intro_var.get(),
-            "overwrite": self.overwrite_var.get(),
-            "selected_media": self.selected_media_var.get() if self.selected_media_var.get() else None
-        }
-        self.dialog.destroy()
 
     def save_only(self):
         """Save player information only without proceeding to mark plays"""
