@@ -4,14 +4,19 @@
 # render_highlight.py
 # Multi-athlete renderer: choose athlete folder and render audio-free highlights.
 #
+# Supports both v1 (legacy) and v2 (multi-project) folder structures.
+#
 # Usage:
 #   python render_highlight.py
 #   python render_highlight.py --athlete "jane_smith"
+#   python render_highlight.py --athlete "jane_smith" --project "Fall 2025"
 #   python render_highlight.py --dir athletes/jane_smith
+#   python render_highlight.py --dir athletes/jane_smith/projects/Fall\ 2025
 #   python render_highlight.py --keep-work
 #
 # Output:
-#   athletes/<athlete>/output/final.mp4
+#   v1: athletes/<athlete>/output/final.mp4
+#   v2: athletes/<athlete>/projects/<project>/output/final.mp4
 #
 # Requires: Pillow, FFmpeg
 
@@ -51,6 +56,19 @@ from constants import (
     OVERLAY_X_MARGIN,
     OVERLAY_Y_OFFSET,
     OVERLAY_BOX_BORDER
+)
+
+# Import structure detection utilities
+from utils.structure import (
+    detect_structure,
+    is_v2_structure,
+    resolve_athlete_dir,
+    resolve_project_dir,
+    get_athlete_profile,
+    get_project_data,
+    list_projects,
+    get_intro_dir,
+    get_merged_project_data,
 )
 
 ROOT = pathlib.Path.cwd()
@@ -174,7 +192,11 @@ def choose_athlete_interactive() -> pathlib.Path | None:
         return None
     print("\nSelect an athlete:")
     for i, p in enumerate(options, 1):
-        print(f"  {i}. {p.name}")
+        if is_v2_structure(p):
+            projects = list_projects(p)
+            print(f"  {i}. {p.name} ({len(projects)} project{'s' if len(projects) != 1 else ''})")
+        else:
+            print(f"  {i}. {p.name}")
     print("  q. Quit")
     while True:
         choice = input("Enter number: ").strip().lower()
@@ -184,6 +206,40 @@ def choose_athlete_interactive() -> pathlib.Path | None:
             idx = int(choice)
             if 1 <= idx <= len(options):
                 return options[idx-1]
+        print("Invalid choice. Try again.")
+
+
+def choose_project_interactive(athlete_dir: pathlib.Path) -> pathlib.Path | None:
+    """Choose a project interactively for v2 athletes."""
+    projects = list_projects(athlete_dir)
+
+    if not projects:
+        print(f"No projects found for {athlete_dir.name}")
+        print(f"Create one with: python create_project.py --athlete \"{athlete_dir.name}\" --project \"Project Name\"")
+        return None
+
+    if len(projects) == 1:
+        print(f"Using project: {projects[0].name}")
+        return projects[0]
+
+    print(f"\nSelect a project for {athlete_dir.name}:")
+    for i, p in enumerate(projects, 1):
+        project_data = get_project_data(p)
+        clips = project_data.get("clips", [])
+        final_exists = (p / "output" / "final.mp4").exists()
+        status = "✓ Done" if final_exists else f"{len(clips)} clips"
+        print(f"  {i}. {p.name} ({status})")
+
+    print("  q. Quit")
+
+    while True:
+        choice = input("Enter number: ").strip().lower()
+        if choice in ("q", "quit", "exit"):
+            return None
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(projects):
+                return projects[idx - 1]
         print("Invalid choice. Try again.")
 
 def ensure_dirs(base: pathlib.Path):
@@ -919,21 +975,71 @@ def make_freeze_with_spot(std_mp4: pathlib.Path, px: int, py: int, radius: int,
 def main():
     ap = argparse.ArgumentParser(description="Render highlights for an athlete (audio-free)")
     ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
-    ap.add_argument("--dir", type=str, help="Full path to athlete folder")
+    ap.add_argument("--project", type=str, help="Project name (for v2 multi-project athletes)")
+    ap.add_argument("--dir", type=str, help="Full path to athlete or project folder")
     ap.add_argument("--keep-work", action="store_true")
     ap.add_argument("--reset-intro", action="store_true", help="Reset intro media selection and choose again")
     args = ap.parse_args()
 
+    athlete_dir = None
+    project_dir = None
+
     if args.dir:
-        base = pathlib.Path(args.dir).resolve()
+        given_path = pathlib.Path(args.dir).resolve()
+        if not given_path.exists() or not given_path.is_dir():
+            print(f"Invalid directory: {given_path}")
+            sys.exit(1)
+
+        athlete_dir = resolve_athlete_dir(given_path)
+        if athlete_dir is None:
+            print(f"Could not determine athlete from path: {given_path}")
+            sys.exit(1)
+
+        if is_v2_structure(athlete_dir):
+            project_dir = resolve_project_dir(given_path)
+            if project_dir is None:
+                project_dir = choose_project_interactive(athlete_dir)
+                if project_dir is None:
+                    sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
     elif args.athlete:
-        base = (ATHLETES / args.athlete).resolve()
+        athlete_dir = (ATHLETES / args.athlete).resolve()
+        if not athlete_dir.exists() or not athlete_dir.is_dir():
+            print(f"Invalid athlete directory: {athlete_dir}")
+            sys.exit(1)
+
+        if is_v2_structure(athlete_dir):
+            if args.project:
+                project_dir = athlete_dir / "projects" / args.project
+                if not project_dir.exists():
+                    print(f"Project not found: {project_dir}")
+                    print(f"Available projects: {', '.join(p.name for p in list_projects(athlete_dir))}")
+                    sys.exit(1)
+            else:
+                project_dir = choose_project_interactive(athlete_dir)
+                if project_dir is None:
+                    sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
     else:
-        base = choose_athlete_interactive()
-        if base is None: sys.exit(0)
+        athlete_dir = choose_athlete_interactive()
+        if athlete_dir is None:
+            sys.exit(0)
+
+        if is_v2_structure(athlete_dir):
+            project_dir = choose_project_interactive(athlete_dir)
+            if project_dir is None:
+                sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
+    base = project_dir
 
     if not base.exists() or not base.is_dir():
-        print(f"Invalid athlete directory: {base}")
+        print(f"Invalid project directory: {base}")
         sys.exit(1)
 
     ensure_dirs(base)
@@ -945,35 +1051,48 @@ def main():
         print(f"{project_path} not found. Run mark_play.py first.")
         sys.exit(1)
 
-    data = json.loads(project_path.read_text())
+    # Load project data (for v2, this also merges in athlete profile)
+    structure_type = detect_structure(base)
+    if structure_type == "v2":
+        data = get_merged_project_data(base)
+    else:
+        data = json.loads(project_path.read_text())
+
     include_intro = bool(data.get("include_intro", True))
-    
+
+    # Get intro directory (shared at athlete level for v2)
+    intro_dir = get_intro_dir(base)
+
     # Handle intro media selection if intro is enabled
     if include_intro:
         # Check if intro media selection is needed (missing key or reset requested)
         # Note: null value means "no intro media" was explicitly chosen, don't re-prompt
         if args.reset_intro or ("intro_media" not in data):
             print(f"\n🎬 Resetting intro media selection for {base.name}")
-            
-            # Check for intro media files
-            intro_dir = base / "intro"
+
+            # Check for intro media files in the intro directory
             intro_files = find_intro_files(intro_dir)
             intro_media_path = None
-            
+
             if intro_files["images"] or intro_files["videos"]:
                 intro_media = choose_intro_media(intro_files)
                 if intro_media:
-                    # Store relative path in project.json
-                    intro_media_path = str(intro_media.relative_to(base))
+                    # Store relative path: for v2, relative to athlete dir; for v1, relative to base
+                    if structure_type == "v2":
+                        intro_media_path = str(intro_media.relative_to(athlete_dir))
+                    else:
+                        intro_media_path = str(intro_media.relative_to(base))
                     print(f"Selected intro media: {intro_media.name}")
                 else:
                     print("Using text-only slate")
             else:
                 print("No intro media files found - using text-only slate")
-            
+
             # Save the selection to project.json
+            raw_data = json.loads(project_path.read_text())
+            raw_data["intro_media"] = intro_media_path
+            project_path.write_text(json.dumps(raw_data, indent=2))
             data["intro_media"] = intro_media_path
-            project_path.write_text(json.dumps(data, indent=2))
         else:
             intro_media_path = data.get("intro_media")
             if intro_media_path:
@@ -1057,16 +1176,20 @@ def main():
     outputs = [body]
     if include_intro:
         slate = work / "slate.mp4"
-        
+
         # Get intro media from project.json
         intro_media = None
         intro_media_path = data.get("intro_media")
         if intro_media_path:
-            intro_media = base / intro_media_path
+            # For v2, intro_media is relative to athlete_dir; for v1, relative to base
+            if structure_type == "v2":
+                intro_media = athlete_dir / intro_media_path
+            else:
+                intro_media = base / intro_media_path
             if not intro_media.exists():
                 print(f"Warning: Intro media file not found: {intro_media}")
                 intro_media = None
-        
+
         make_slate(data.get("player", {}), slate, work, intro_media)
         outputs = [slate, body]
 

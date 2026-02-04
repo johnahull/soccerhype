@@ -3,10 +3,14 @@
 # Licensed under the MIT License - see LICENSE file
 # reorder_clips.py — GUI to reorder clips in project.json with system player preview
 #
+# Supports both v1 (legacy) and v2 (multi-project) folder structures.
+#
 # Usage:
 #   python reorder_clips.py
 #   python reorder_clips.py --athlete "Jane Smith"
+#   python reorder_clips.py --athlete "Jane Smith" --project "Fall 2025"
 #   python reorder_clips.py --dir "athletes/Jane Smith"
+#   python reorder_clips.py --dir "athletes/Jane Smith/projects/Fall 2025"
 #
 # Note: Preview functionality uses system default video player for reliability.
 # Trade-offs vs embedded player: No scrubbing/looping, but better codec support.
@@ -31,6 +35,16 @@ from constants import SECTIONS, SECTION_COLORS, OVERLAY_DEFAULT_COLOR
 # Import clip sync utilities
 from clip_sync import sync_clips, is_clip_marked, get_sync_summary_message
 
+# Import structure detection utilities
+from utils.structure import (
+    detect_structure,
+    is_v2_structure,
+    resolve_athlete_dir,
+    resolve_project_dir,
+    list_projects,
+    get_project_data,
+)
+
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
@@ -47,7 +61,12 @@ def choose_athlete_interactive() -> pathlib.Path | None:
         return None
     print("\nSelect an athlete:")
     for i, p in enumerate(options, 1):
-        print(f"  {i}. {p.name}")
+        # Show project count for v2 athletes
+        if is_v2_structure(p):
+            projects = list_projects(p)
+            print(f"  {i}. {p.name} ({len(projects)} project{'s' if len(projects) != 1 else ''})")
+        else:
+            print(f"  {i}. {p.name}")
     print("  q. Quit")
     while True:
         choice = input("Enter number: ").strip().lower()
@@ -57,6 +76,41 @@ def choose_athlete_interactive() -> pathlib.Path | None:
             idx = int(choice)
             if 1 <= idx <= len(options):
                 return options[idx-1]
+        print("Invalid choice. Try again.")
+
+
+def choose_project_interactive(athlete_dir: pathlib.Path) -> pathlib.Path | None:
+    """Choose a project interactively for v2 athletes."""
+    projects = list_projects(athlete_dir)
+
+    if not projects:
+        print(f"No projects found for {athlete_dir.name}")
+        print(f"Create one with: python create_project.py --athlete \"{athlete_dir.name}\" --project \"Project Name\"")
+        return None
+
+    if len(projects) == 1:
+        # Single project - auto-select
+        print(f"Using project: {projects[0].name}")
+        return projects[0]
+
+    print(f"\nSelect a project for {athlete_dir.name}:")
+    for i, p in enumerate(projects, 1):
+        # Show clip count
+        project_data = get_project_data(p)
+        clips = project_data.get("clips", [])
+        marked = sum(1 for c in clips if is_clip_marked(c))
+        print(f"  {i}. {p.name} ({marked}/{len(clips)} clips marked)")
+
+    print("  q. Quit")
+
+    while True:
+        choice = input("Enter number: ").strip().lower()
+        if choice in ("q", "quit", "exit"):
+            return None
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(projects):
+                return projects[idx - 1]
         print("Invalid choice. Try again.")
 
 def load_project(base: pathlib.Path) -> dict:
@@ -531,36 +585,80 @@ class ReorderGUI(tk.Tk):
         self.update_title()
 
     def remove_selected(self):
-        """Remove selected clip from the list with confirmation"""
+        """Remove selected clip from the list with option to delete file"""
         i = self.current_selection()
         if i is None:
             messagebox.showwarning("No Selection", "Please select a clip to remove.")
             return
 
         # Validate bounds to prevent IndexError
-        if i >= len(self.clips):
+        if i < 0 or i >= len(self.clips):
             messagebox.showerror("Selection Error", "Selected item is out of range.")
             return
 
+        clip = self.clips[i]
         clip_name = self.listbox.get(i)
 
-        # Confirm deletion
-        result = messagebox.askyesno(
-            "Confirm Removal",
-            f"Remove clip from list?\n\n{clip_name}\n\n"
-            "This will remove it from the project (when you click 'Save Order').\n"
-            "The original video file will not be deleted.",
-            icon='warning'
-        )
+        # Get the source file path
+        file_path = clip.get("file")
+        source_file = pathlib.Path(file_path) if file_path else None
+        file_exists = source_file and source_file.exists()
 
-        if not result:
-            return
+        # Ask what to do
+        if file_exists:
+            result = messagebox.askyesnocancel(
+                "Remove Clip",
+                f"Remove clip from project?\n\n{clip_name}\n\n"
+                "Yes = Remove from project AND delete file\n"
+                "No = Remove from project only (keep file)\n"
+                "Cancel = Don't remove",
+                icon='question'
+            )
+
+            if result is None:  # Cancel
+                return
+
+            delete_file = result  # True = Yes (delete), False = No (keep)
+        else:
+            # File doesn't exist or no path - just confirm removal
+            if not messagebox.askyesno(
+                "Remove Clip",
+                f"Remove clip from project?\n\n{clip_name}",
+                icon='warning'
+            ):
+                return
+            delete_file = False
 
         # Remove from data and UI
         del self.clips[i]
         self.listbox.delete(i)
         self.is_modified = True
         self.update_title()
+
+        # Delete file if requested (with path validation)
+        if delete_file and source_file:
+            try:
+                # Security: Validate file is within project directory
+                source_file.resolve().relative_to(self.base.resolve())
+            except ValueError:
+                messagebox.showwarning("Warning", "Cannot delete file outside project directory")
+                return
+
+            try:
+                source_file.unlink()
+                # Also delete proxy if it exists
+                proxy_path = clip.get("std_file")
+                if proxy_path:
+                    proxy = pathlib.Path(proxy_path)
+                    if proxy.exists():
+                        # Validate proxy path too
+                        try:
+                            proxy.resolve().relative_to(self.base.resolve())
+                            proxy.unlink()
+                        except ValueError:
+                            pass  # Skip proxy outside project dir
+            except OSError as e:
+                messagebox.showwarning("Warning", f"Could not delete file: {e}")
 
         # Update selection to next item (or previous if last item was removed)
         if len(self.clips) > 0:
@@ -728,20 +826,69 @@ class ReorderGUI(tk.Tk):
 def main():
     ap = argparse.ArgumentParser(description="GUI to reorder clips with playback preview")
     ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
-    ap.add_argument("--dir", type=str, help="Full path to athlete folder")
+    ap.add_argument("--project", type=str, help="Project name (for v2 multi-project athletes)")
+    ap.add_argument("--dir", type=str, help="Full path to athlete or project folder")
     args = ap.parse_args()
 
+    athlete_dir: Optional[pathlib.Path] = None
+    project_dir: Optional[pathlib.Path] = None
+
     if args.dir:
-        base = pathlib.Path(args.dir).resolve()
+        given_path = pathlib.Path(args.dir).resolve()
+        if not given_path.exists() or not given_path.is_dir():
+            print(f"Invalid directory: {given_path}")
+            sys.exit(1)
+
+        athlete_dir = resolve_athlete_dir(given_path)
+        if athlete_dir is None:
+            print(f"Could not determine athlete from path: {given_path}")
+            sys.exit(1)
+
+        if is_v2_structure(athlete_dir):
+            project_dir = resolve_project_dir(given_path)
+            if project_dir is None:
+                project_dir = choose_project_interactive(athlete_dir)
+                if project_dir is None:
+                    sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
     elif args.athlete:
-        base = (ATHLETES / args.athlete).resolve()
+        athlete_dir = (ATHLETES / args.athlete).resolve()
+        if not athlete_dir.exists() or not athlete_dir.is_dir():
+            print(f"Invalid athlete directory: {athlete_dir}")
+            sys.exit(1)
+
+        if is_v2_structure(athlete_dir):
+            if args.project:
+                project_dir = athlete_dir / "projects" / args.project
+                if not project_dir.exists():
+                    print(f"Project not found: {project_dir}")
+                    print(f"Available projects: {', '.join(p.name for p in list_projects(athlete_dir))}")
+                    sys.exit(1)
+            else:
+                project_dir = choose_project_interactive(athlete_dir)
+                if project_dir is None:
+                    sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
     else:
-        base = choose_athlete_interactive()
-        if base is None:
+        athlete_dir = choose_athlete_interactive()
+        if athlete_dir is None:
             sys.exit(0)
 
+        if is_v2_structure(athlete_dir):
+            project_dir = choose_project_interactive(athlete_dir)
+            if project_dir is None:
+                sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
+    base = project_dir
+
     if not base.exists() or not base.is_dir():
-        print(f"Invalid athlete directory: {base}")
+        print(f"Invalid project directory: {base}")
         sys.exit(1)
 
     try:

@@ -4,12 +4,24 @@
 # mark_play.py
 # Multi-athlete: choose an athlete folder under athletes/, mark clips on a standardized proxy.
 #
-# Structure (already created by you):
+# Supports both v1 (legacy) and v2 (multi-project) folder structures:
+#
+# v1 Structure:
 #   athletes/<athlete_name>/
 #     ├─ clips_in/     (place source videos here)
 #     ├─ work/         (created by this script)
 #     ├─ output/       (unused here; renderer writes final here)
-#     └─ project.json
+#     └─ project.json  (contains player info + clips)
+#
+# v2 Structure:
+#   athletes/<athlete_name>/
+#     ├─ athlete.json  (shared player profile)
+#     ├─ intro/        (shared intro media)
+#     └─ projects/<project_name>/
+#         ├─ clips_in/
+#         ├─ work/
+#         ├─ output/
+#         └─ project.json  (clips only)
 #
 # Features:
 #   - Scans athletes/ and shows a numbered menu to pick an athlete folder.
@@ -40,7 +52,9 @@
 # Usage:
 #   python mark_play.py
 #   python mark_play.py --athlete "jane_smith"
+#   python mark_play.py --athlete "jane_smith" --project "Fall 2025"
 #   python mark_play.py --dir athletes/jane_smith
+#   python mark_play.py --dir athletes/jane_smith/projects/Fall\ 2025
 #
 # Requires: OpenCV (cv2), FFmpeg
 
@@ -50,7 +64,7 @@ import json
 import pathlib
 import subprocess
 import sys
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Import FFmpeg utilities for bundled binary detection
 try:
@@ -62,6 +76,19 @@ except ImportError:
 
 # Import clip sync utilities for marking status detection
 from clip_sync import is_clip_marked, get_clip_filename
+
+# Import structure detection utilities
+from utils.structure import (
+    detect_structure,
+    is_v2_structure,
+    resolve_athlete_dir,
+    resolve_project_dir,
+    get_athlete_profile,
+    get_project_data,
+    save_project_data,
+    list_projects,
+    get_intro_dir,
+)
 
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
@@ -93,7 +120,12 @@ def choose_athlete_interactive() -> pathlib.Path | None:
         return None
     print("\nSelect an athlete:")
     for i, p in enumerate(options, 1):
-        print(f"  {i}. {p.name}")
+        # Show project count for v2 athletes
+        if is_v2_structure(p):
+            projects = list_projects(p)
+            print(f"  {i}. {p.name} ({len(projects)} project{'s' if len(projects) != 1 else ''})")
+        else:
+            print(f"  {i}. {p.name}")
     print("  q. Quit")
     while True:
         choice = input("Enter number: ").strip().lower()
@@ -105,7 +137,43 @@ def choose_athlete_interactive() -> pathlib.Path | None:
                 return options[idx-1]
         print("Invalid choice. Try again.")
 
-def validate_athlete_dir(base: pathlib.Path) -> dict[str, pathlib.Path]:
+
+def choose_project_interactive(athlete_dir: pathlib.Path) -> pathlib.Path | None:
+    """Choose a project interactively for v2 athletes."""
+    projects = list_projects(athlete_dir)
+
+    if not projects:
+        print(f"No projects found for {athlete_dir.name}")
+        print(f"Create one with: python create_project.py --athlete \"{athlete_dir.name}\" --project \"Project Name\"")
+        return None
+
+    if len(projects) == 1:
+        # Single project - auto-select
+        print(f"Using project: {projects[0].name}")
+        return projects[0]
+
+    print(f"\nSelect a project for {athlete_dir.name}:")
+    for i, p in enumerate(projects, 1):
+        # Show marking status
+        project_data = get_project_data(p)
+        clips = project_data.get("clips", [])
+        marked = sum(1 for c in clips if is_clip_marked(c))
+        print(f"  {i}. {p.name} ({marked}/{len(clips)} clips marked)")
+
+    print("  q. Quit")
+
+    while True:
+        choice = input("Enter number: ").strip().lower()
+        if choice in ("q", "quit", "exit"):
+            return None
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(projects):
+                return projects[idx - 1]
+        print("Invalid choice. Try again.")
+
+def validate_project_dir(base: pathlib.Path) -> dict[str, pathlib.Path]:
+    """Validate and return paths for a project directory (works for both v1 and v2)."""
     clips_in = base / "clips_in"
     work = base / "work"
     output = base / "output"
@@ -117,6 +185,11 @@ def validate_athlete_dir(base: pathlib.Path) -> dict[str, pathlib.Path]:
     work.mkdir(exist_ok=True)
     prox.mkdir(parents=True, exist_ok=True)
     return {"clips_in": clips_in, "work": work, "output": output, "prox": prox}
+
+
+# Alias for backward compatibility
+def validate_athlete_dir(base: pathlib.Path) -> dict[str, pathlib.Path]:
+    return validate_project_dir(base)
 
 def list_clips(clips_in: pathlib.Path) -> List[pathlib.Path]:
     return sorted([p for p in clips_in.iterdir() if p.suffix.lower() in VIDEO_EXTS])
@@ -418,7 +491,8 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
-    ap.add_argument("--dir", type=str, help="Full path to athlete folder")
+    ap.add_argument("--project", type=str, help="Project name (for v2 multi-project athletes)")
+    ap.add_argument("--dir", type=str, help="Full path to athlete or project folder")
 
     # Player information arguments (for GUI mode)
     ap.add_argument("--player-name", type=str, help="Player name")
@@ -439,23 +513,79 @@ def main():
 
     args = ap.parse_args()
 
-    # Resolve athlete base directory
+    # Resolve athlete and project directories
+    athlete_dir: Optional[pathlib.Path] = None
+    project_dir: Optional[pathlib.Path] = None
+
     if args.dir:
-        base = pathlib.Path(args.dir).resolve()
+        # Direct path provided - could be athlete dir or project dir
+        given_path = pathlib.Path(args.dir).resolve()
+        if not given_path.exists() or not given_path.is_dir():
+            print(f"Invalid directory: {given_path}")
+            sys.exit(1)
+
+        # Determine if this is a project dir or athlete dir
+        athlete_dir = resolve_athlete_dir(given_path)
+        if athlete_dir is None:
+            print(f"Could not determine athlete from path: {given_path}")
+            sys.exit(1)
+
+        # Check if given_path is a project dir within v2 structure
+        if is_v2_structure(athlete_dir):
+            project_dir = resolve_project_dir(given_path)
+            if project_dir is None:
+                # Path is athlete root, need to select project
+                project_dir = choose_project_interactive(athlete_dir)
+                if project_dir is None:
+                    sys.exit(0)
+        else:
+            # v1: athlete dir is the project dir
+            project_dir = athlete_dir
+
     elif args.athlete:
-        base = (ATHLETES / args.athlete).resolve()
+        athlete_dir = (ATHLETES / args.athlete).resolve()
+        if not athlete_dir.exists() or not athlete_dir.is_dir():
+            print(f"Invalid athlete directory: {athlete_dir}")
+            sys.exit(1)
+
+        if is_v2_structure(athlete_dir):
+            if args.project:
+                project_dir = athlete_dir / "projects" / args.project
+                if not project_dir.exists():
+                    print(f"Project not found: {project_dir}")
+                    print(f"Available projects: {', '.join(p.name for p in list_projects(athlete_dir))}")
+                    sys.exit(1)
+            else:
+                project_dir = choose_project_interactive(athlete_dir)
+                if project_dir is None:
+                    sys.exit(0)
+        else:
+            # v1: athlete dir is the project dir
+            project_dir = athlete_dir
+
     else:
-        base = choose_athlete_interactive()
-        if base is None:
+        # Interactive mode
+        athlete_dir = choose_athlete_interactive()
+        if athlete_dir is None:
             sys.exit(0)
 
+        if is_v2_structure(athlete_dir):
+            project_dir = choose_project_interactive(athlete_dir)
+            if project_dir is None:
+                sys.exit(0)
+        else:
+            project_dir = athlete_dir
+
+    # For backward compatibility, use 'base' to refer to project_dir
+    base = project_dir
+
     if not base.exists() or not base.is_dir():
-        print(f"Invalid athlete directory: {base}")
+        print(f"Invalid project directory: {base}")
         sys.exit(1)
 
-    paths = validate_athlete_dir(base)
-    # Ensure intro directory exists
-    intro_dir = base / "intro"
+    paths = validate_project_dir(base)
+    # Get intro directory (shared at athlete level for v2)
+    intro_dir = get_intro_dir(base)
     intro_dir.mkdir(exist_ok=True)
     clips = list_clips(paths["clips_in"])
     if not clips:
@@ -507,11 +637,19 @@ def main():
         pass
 
     # Handle intro and player info
+    # For v2, player info comes from athlete.json; for v1, from project.json
+    structure_type = detect_structure(base)
+
     # In new-only mode with existing project, use existing data
     if existing_project and not mark_all:
         # Use existing player/intro data from project
         include_intro = existing_project.get("include_intro", True)
-        player = existing_project.get("player", {})
+        if structure_type == "v2":
+            # v2: Load player from athlete.json (may be more up-to-date)
+            player = get_athlete_profile(athlete_dir)
+        else:
+            # v1: Use player from project.json
+            player = existing_project.get("player", {})
         intro_media_path = existing_project.get("intro_media")
     elif gui_mode:
         include_intro = args.include_intro
@@ -529,28 +667,56 @@ def main():
             player["email"] = args.email or ""
             player["phone"] = args.phone or ""
     else:
-        include_intro = input("Include intro screen? [Y/n]: ").strip().lower() != "n"
-        player = {}
-        if include_intro:
-            print("Enter player info (leave blank to omit a line):")
-            player["name"] = input("Name: ").strip()
-            player["position"] = input("Position: ").strip()
-            player["grad_year"] = input("Grad Year: ").strip()
-            player["club_team"] = input("Club Team: ").strip()
-            player["high_school"] = input("High School: ").strip()
-            player["height_weight"] = input("Height/Weight: ").strip()
-            player["gpa"] = input("GPA: ").strip()
-            player["email"] = input("Email: ").strip()
-            player["phone"] = input("Phone: ").strip()
-        
+        # Interactive mode - check if we have existing athlete profile (v2)
+        if structure_type == "v2":
+            player = get_athlete_profile(athlete_dir)
+            if player.get("name"):
+                print(f"Using player profile: {player['name']}")
+            else:
+                # No profile yet, prompt for info
+                include_intro = input("Include intro screen? [Y/n]: ").strip().lower() != "n"
+                if include_intro:
+                    print("Enter player info (leave blank to omit a line):")
+                    player["name"] = input("Name: ").strip() or athlete_dir.name
+                    player["position"] = input("Position: ").strip()
+                    player["grad_year"] = input("Grad Year: ").strip()
+                    player["club_team"] = input("Club Team: ").strip()
+                    player["high_school"] = input("High School: ").strip()
+                    player["height_weight"] = input("Height/Weight: ").strip()
+                    player["gpa"] = input("GPA: ").strip()
+                    player["email"] = input("Email: ").strip()
+                    player["phone"] = input("Phone: ").strip()
+        else:
+            # v1: prompt for player info
+            include_intro = input("Include intro screen? [Y/n]: ").strip().lower() != "n"
+            player = {}
+            if include_intro:
+                print("Enter player info (leave blank to omit a line):")
+                player["name"] = input("Name: ").strip()
+                player["position"] = input("Position: ").strip()
+                player["grad_year"] = input("Grad Year: ").strip()
+                player["club_team"] = input("Club Team: ").strip()
+                player["high_school"] = input("High School: ").strip()
+                player["height_weight"] = input("Height/Weight: ").strip()
+                player["gpa"] = input("GPA: ").strip()
+                player["email"] = input("Email: ").strip()
+                player["phone"] = input("Phone: ").strip()
+
+        # Set default include_intro if not set yet
+        if 'include_intro' not in dir() or include_intro is None:
+            include_intro = True
+
         # Handle intro media selection
         intro_media_path = None
-        intro_dir = base / "intro"
         intro_files = find_intro_files(intro_dir)
         if intro_files["images"] or intro_files["videos"]:
             intro_media = choose_intro_media(intro_files)
             if intro_media:
-                intro_media_path = str(intro_media.relative_to(base))
+                # For v2, store path relative to athlete dir; for v1, relative to project dir
+                if structure_type == "v2":
+                    intro_media_path = str(intro_media.relative_to(athlete_dir))
+                else:
+                    intro_media_path = str(intro_media.relative_to(base))
                 print(f"Selected intro media: {intro_media.name}")
             else:
                 print("Using text-only slate")
@@ -563,13 +729,25 @@ def main():
         project = existing_project.copy()
         # Update player info only if provided in GUI mode
         if gui_mode and include_intro:
-            project["player"] = player
+            if structure_type == "v1":
+                project["player"] = player
             project["include_intro"] = include_intro
             if intro_media_path:
                 project["intro_media"] = intro_media_path
     else:
         # Fresh project or --all mode
-        project = {"player": player, "include_intro": include_intro, "intro_media": intro_media_path, "clips": []}
+        if structure_type == "v2":
+            # v2: No player field in project.json (stored in athlete.json)
+            project = {
+                "schema_version": "2.0",
+                "project_name": base.name,
+                "include_intro": include_intro,
+                "intro_media": intro_media_path,
+                "clips": []
+            }
+        else:
+            # v1: Include player in project.json
+            project = {"player": player, "include_intro": include_intro, "intro_media": intro_media_path, "clips": []}
 
     # Build map of clips_in files for lookup
     clips_in_files = {src.name: src for src in clips}

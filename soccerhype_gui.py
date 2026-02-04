@@ -28,6 +28,20 @@ from profile_manager import PlayerProfileManager, sanitize_profile_id
 # Import clip sync utilities for marking status
 from clip_sync import is_clip_marked
 
+# Import structure detection utilities
+from utils.structure import (
+    detect_structure,
+    is_v2_structure,
+    resolve_athlete_dir,
+    resolve_project_dir,
+    get_athlete_profile,
+    get_project_data,
+    list_projects,
+    create_project,
+    clone_project,
+    create_v2_structure,
+    SCHEMA_VERSION,
+)
 
 # Import enhanced error handling
 try:
@@ -88,93 +102,157 @@ class AthleteManager:
             return self._get_athlete_status_basic(athlete_dir)
 
     def _get_athlete_status_with_error_handling(self, athlete_dir: pathlib.Path) -> Dict[str, bool]:
-        """Check athlete status with error handling"""
+        """Check athlete status with error handling (supports both v1 and v2)."""
         @error_handler("Checking athlete status", show_dialog=False)
         def _get_status():
             if ERROR_HANDLING_AVAILABLE:
                 ValidationHelper.validate_directory(athlete_dir)
 
-            project_file = athlete_dir / "project.json"
-            final_video = athlete_dir / "output" / "final.mp4"
-            clips_in = athlete_dir / "clips_in"
+            # Check if v2 structure
+            v2 = is_v2_structure(athlete_dir)
+            projects = list_projects(athlete_dir) if v2 else [athlete_dir]
 
-            has_clips = clips_in.exists() and any(clips_in.iterdir())
-            has_project = project_file.exists()
-            has_final = final_video.exists()
+            # For v2, aggregate status across all projects
+            total_clips = 0
+            total_marked = 0
+            any_has_clips = False
+            any_has_project = False
+            all_have_final = True
+            any_needs_marking = False
+            any_needs_rendering = False
 
-            # Check if profile exists and clips are marked
+            for project_dir in projects:
+                project_file = project_dir / "project.json"
+                final_video = project_dir / "output" / "final.mp4"
+                clips_in = project_dir / "clips_in"
+
+                has_clips = clips_in.exists() and any(clips_in.iterdir()) if clips_in.exists() else False
+                has_project = project_file.exists()
+                has_final = final_video.exists()
+
+                if has_clips:
+                    any_has_clips = True
+                if has_project:
+                    any_has_project = True
+                if not has_final:
+                    all_have_final = False
+
+                if has_project:
+                    try:
+                        project_data = get_project_data(project_dir)
+                        clips = project_data.get("clips", [])
+                        total_clips += len(clips)
+                        marked = sum(1 for clip in clips if is_clip_marked(clip))
+                        total_marked += marked
+                        if has_clips and (len(clips) == 0 or marked < len(clips)):
+                            any_needs_marking = True
+                        if marked == len(clips) and len(clips) > 0 and not has_final:
+                            any_needs_rendering = True
+                    except (IOError, json.JSONDecodeError):
+                        pass
+
+            # Check profile (for v2, from athlete.json; for v1, from project.json)
             has_profile = False
-            all_clips_marked = False
-            clips_count = 0
-            marked_count = 0
-            if has_project:
+            if v2:
+                profile = get_athlete_profile(athlete_dir)
+                has_profile = bool(profile.get("name", "").strip())
+            elif projects and (projects[0] / "project.json").exists():
                 try:
-                    import json
-                    project_data = json.loads(project_file.read_text())
+                    project_data = json.loads((projects[0] / "project.json").read_text())
                     has_profile = bool(project_data.get("player", {}).get("name", "").strip())
-                    # Check marking status of all clips
-                    clips = project_data.get("clips", [])
-                    clips_count = len(clips)
-                    marked_count = sum(1 for clip in clips if is_clip_marked(clip))
-                    all_clips_marked = clips_count > 0 and marked_count == clips_count
                 except (IOError, json.JSONDecodeError):
                     pass
 
             return {
-                "has_clips": has_clips,
-                "has_project": has_project,
+                "is_v2": v2,
+                "project_count": len(projects),
+                "has_clips": any_has_clips,
+                "has_project": any_has_project,
                 "has_profile": has_profile,
-                "has_final": has_final,
-                "all_clips_marked": all_clips_marked,
-                "clips_count": clips_count,
-                "marked_count": marked_count,
-                "needs_marking": has_clips and (not has_project or not all_clips_marked),
-                "needs_rendering": has_project and all_clips_marked and not has_final
+                "has_final": all_have_final and len(projects) > 0,
+                "all_clips_marked": total_clips > 0 and total_marked == total_clips,
+                "clips_count": total_clips,
+                "marked_count": total_marked,
+                "needs_marking": any_needs_marking,
+                "needs_rendering": any_needs_rendering
             }
         return _get_status()
 
     def _get_athlete_status_basic(self, athlete_dir: pathlib.Path) -> Dict[str, bool]:
-        """Check athlete status without error handling"""
+        """Check athlete status without error handling (supports both v1 and v2)."""
         try:
-            project_file = athlete_dir / "project.json"
-            final_video = athlete_dir / "output" / "final.mp4"
-            clips_in = athlete_dir / "clips_in"
+            # Check if v2 structure
+            v2 = is_v2_structure(athlete_dir)
+            projects = list_projects(athlete_dir) if v2 else [athlete_dir]
 
-            has_clips = clips_in.exists() and any(clips_in.iterdir())
-            has_project = project_file.exists()
-            has_final = final_video.exists()
+            # For v2, aggregate status across all projects
+            total_clips = 0
+            total_marked = 0
+            any_has_clips = False
+            any_has_project = False
+            all_have_final = True
+            any_needs_marking = False
+            any_needs_rendering = False
 
-            # Check if profile exists and clips are marked
+            for project_dir in projects:
+                project_file = project_dir / "project.json"
+                final_video = project_dir / "output" / "final.mp4"
+                clips_in = project_dir / "clips_in"
+
+                has_clips = clips_in.exists() and any(clips_in.iterdir()) if clips_in.exists() else False
+                has_project = project_file.exists()
+                has_final = final_video.exists()
+
+                if has_clips:
+                    any_has_clips = True
+                if has_project:
+                    any_has_project = True
+                if not has_final:
+                    all_have_final = False
+
+                if has_project:
+                    try:
+                        project_data = get_project_data(project_dir)
+                        clips = project_data.get("clips", [])
+                        total_clips += len(clips)
+                        marked = sum(1 for clip in clips if is_clip_marked(clip))
+                        total_marked += marked
+                        if has_clips and (len(clips) == 0 or marked < len(clips)):
+                            any_needs_marking = True
+                        if marked == len(clips) and len(clips) > 0 and not has_final:
+                            any_needs_rendering = True
+                    except (IOError, json.JSONDecodeError):
+                        pass
+
+            # Check profile (for v2, from athlete.json; for v1, from project.json)
             has_profile = False
-            all_clips_marked = False
-            clips_count = 0
-            marked_count = 0
-            if has_project:
+            if v2:
+                profile = get_athlete_profile(athlete_dir)
+                has_profile = bool(profile.get("name", "").strip())
+            elif projects and (projects[0] / "project.json").exists():
                 try:
-                    import json
-                    project_data = json.loads(project_file.read_text())
+                    project_data = json.loads((projects[0] / "project.json").read_text())
                     has_profile = bool(project_data.get("player", {}).get("name", "").strip())
-                    # Check marking status of all clips
-                    clips = project_data.get("clips", [])
-                    clips_count = len(clips)
-                    marked_count = sum(1 for clip in clips if is_clip_marked(clip))
-                    all_clips_marked = clips_count > 0 and marked_count == clips_count
                 except (IOError, json.JSONDecodeError):
                     pass
 
             return {
-                "has_clips": has_clips,
-                "has_project": has_project,
+                "is_v2": v2,
+                "project_count": len(projects),
+                "has_clips": any_has_clips,
+                "has_project": any_has_project,
                 "has_profile": has_profile,
-                "has_final": has_final,
-                "all_clips_marked": all_clips_marked,
-                "clips_count": clips_count,
-                "marked_count": marked_count,
-                "needs_marking": has_clips and (not has_project or not all_clips_marked),
-                "needs_rendering": has_project and all_clips_marked and not has_final
+                "has_final": all_have_final and len(projects) > 0,
+                "all_clips_marked": total_clips > 0 and total_marked == total_clips,
+                "clips_count": total_clips,
+                "marked_count": total_marked,
+                "needs_marking": any_needs_marking,
+                "needs_rendering": any_needs_rendering
             }
         except Exception:
             return {
+                "is_v2": False,
+                "project_count": 0,
                 "has_clips": False,
                 "has_project": False,
                 "has_profile": False,
@@ -194,7 +272,7 @@ class AthleteManager:
             return self._create_athlete_basic(name)
 
     def _create_athlete_with_error_handling(self, name: str) -> pathlib.Path:
-        """Create athlete with error handling"""
+        """Create athlete with error handling (v2 structure with default project)"""
         @error_handler("Creating athlete folder")
         def _create():
             if not name or not name.strip():
@@ -208,17 +286,15 @@ class AthleteManager:
                 # Check disk space (estimate 1GB needed)
                 ValidationHelper.validate_disk_space(ATHLETES, 1024 * 1024 * 1024)
 
-            # Create directory structure
-            (athlete_dir / "clips_in").mkdir(parents=True, exist_ok=True)
-            (athlete_dir / "intro").mkdir(parents=True, exist_ok=True)
-            (athlete_dir / "work" / "proxies").mkdir(parents=True, exist_ok=True)
-            (athlete_dir / "output").mkdir(parents=True, exist_ok=True)
+            # Create v2 structure with a default project
+            create_v2_structure(athlete_dir, {"name": name.strip()})
+            create_project(athlete_dir, "Default")
 
             return athlete_dir
         return _create()
 
     def _create_athlete_basic(self, name: str) -> pathlib.Path:
-        """Create athlete without error handling"""
+        """Create athlete without error handling (v2 structure with default project)"""
         if not name or not name.strip():
             raise ValueError("Athlete name cannot be empty")
 
@@ -226,13 +302,74 @@ class AthleteManager:
         if athlete_dir.exists():
             raise FileExistsError(f"Athlete '{name}' already exists")
 
-        # Create directory structure
-        (athlete_dir / "clips_in").mkdir(parents=True, exist_ok=True)
-        (athlete_dir / "intro").mkdir(parents=True, exist_ok=True)
-        (athlete_dir / "work" / "proxies").mkdir(parents=True, exist_ok=True)
-        (athlete_dir / "output").mkdir(parents=True, exist_ok=True)
+        # Create v2 structure with a default project
+        create_v2_structure(athlete_dir, {"name": name.strip()})
+        create_project(athlete_dir, "Default")
 
         return athlete_dir
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Multi-project (v2) support methods
+    # ─────────────────────────────────────────────────────────────────────
+
+    def is_v2_athlete(self, athlete_dir: pathlib.Path) -> bool:
+        """Check if athlete uses v2 (multi-project) structure."""
+        return is_v2_structure(athlete_dir)
+
+    def discover_projects(self, athlete_dir: pathlib.Path) -> List[pathlib.Path]:
+        """List all projects for an athlete."""
+        return list_projects(athlete_dir)
+
+    def get_project_status(self, project_dir: pathlib.Path) -> Dict:
+        """Get status for a specific project (works for both v1 and v2)."""
+        project_file = project_dir / "project.json"
+        final_video = project_dir / "output" / "final.mp4"
+        clips_in = project_dir / "clips_in"
+
+        has_clips = clips_in.exists() and any(clips_in.iterdir()) if clips_in.exists() else False
+        has_project = project_file.exists()
+        has_final = final_video.exists()
+
+        clips_count = 0
+        marked_count = 0
+        all_clips_marked = False
+
+        if has_project:
+            try:
+                project_data = get_project_data(project_dir)
+                clips = project_data.get("clips", [])
+                clips_count = len(clips)
+                marked_count = sum(1 for clip in clips if is_clip_marked(clip))
+                all_clips_marked = clips_count > 0 and marked_count == clips_count
+            except (IOError, json.JSONDecodeError):
+                pass
+
+        return {
+            "has_clips": has_clips,
+            "has_project": has_project,
+            "has_final": has_final,
+            "clips_count": clips_count,
+            "marked_count": marked_count,
+            "all_clips_marked": all_clips_marked,
+            "needs_marking": has_clips and (not has_project or not all_clips_marked),
+            "needs_rendering": has_project and all_clips_marked and not has_final
+        }
+
+    def create_project_for_athlete(self, athlete_dir: pathlib.Path, project_name: str) -> pathlib.Path:
+        """Create a new project under an athlete."""
+        # Ensure v2 structure exists
+        if not is_v2_structure(athlete_dir):
+            # Upgrade to v2
+            profile = get_athlete_profile(athlete_dir)
+            if not profile.get("name"):
+                profile["name"] = athlete_dir.name
+            create_v2_structure(athlete_dir, profile)
+
+        return create_project(athlete_dir, project_name)
+
+    def load_athlete_profile(self, athlete_dir: pathlib.Path) -> Dict:
+        """Load athlete profile (works for both v1 and v2)."""
+        return get_athlete_profile(athlete_dir)
 
 class ProgressDialog:
     """Modal dialog showing operation progress"""
@@ -281,6 +418,208 @@ class ProgressDialog:
         """Close dialog"""
         self.progress.stop()
         self.dialog.destroy()
+
+
+class ProjectSelectionDialog:
+    """Dialog for selecting a project from a v2 athlete."""
+
+    def __init__(self, parent, athlete_manager, athlete_dir: pathlib.Path, allow_create: bool = True):
+        self.result = None
+        self.athlete_dir = athlete_dir
+        self.athlete_manager = athlete_manager
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(f"Select Project - {athlete_dir.name}")
+        self.dialog.geometry("450x400")
+        self.dialog.resizable(False, False)
+        self.dialog.transient(parent)
+
+        # Center on parent
+        self.dialog.geometry(f"+{parent.winfo_rootx() + 150}+{parent.winfo_rooty() + 100}")
+
+        # Ensure window is visible before grabbing focus (fixes TclError)
+        self.dialog.update_idletasks()
+        self.dialog.wait_visibility()
+        self.dialog.grab_set()
+
+        self.setup_ui(allow_create)
+        self.refresh_projects()
+
+        # Wait for dialog to complete
+        self.dialog.wait_window()
+
+    def setup_ui(self, allow_create: bool):
+        """Setup the project selection UI."""
+        main_frame = tk.Frame(self.dialog)
+        main_frame.pack(fill='both', expand=True, padx=20, pady=10)
+
+        tk.Label(main_frame, text=f"Projects for {self.athlete_dir.name}",
+                font=("Segoe UI", 14, "bold")).pack(pady=(0, 10))
+
+        # Project listbox with scrollbar
+        list_frame = tk.Frame(main_frame)
+        list_frame.pack(fill='both', expand=True)
+
+        self.project_listbox = tk.Listbox(list_frame, font=("Segoe UI", 10), height=12)
+        scrollbar = tk.Scrollbar(list_frame, orient='vertical', command=self.project_listbox.yview)
+        self.project_listbox.configure(yscrollcommand=scrollbar.set)
+        self.project_listbox.bind('<Double-Button-1>', lambda e: self.select_project())
+
+        self.project_listbox.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        # Buttons
+        button_frame = tk.Frame(main_frame)
+        button_frame.pack(fill='x', pady=(10, 0))
+
+        tk.Button(button_frame, text="Select", command=self.select_project,
+                 bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold")).pack(side='left', padx=(0, 5))
+
+        if allow_create:
+            tk.Button(button_frame, text="New Project", command=self.create_project,
+                     font=("Segoe UI", 10)).pack(side='left', padx=(0, 5))
+
+        tk.Button(button_frame, text="Cancel", command=self.cancel,
+                 font=("Segoe UI", 10)).pack(side='right')
+
+    def refresh_projects(self):
+        """Refresh the project list."""
+        self.project_listbox.delete(0, tk.END)
+        self.projects = self.athlete_manager.discover_projects(self.athlete_dir)
+
+        if not self.projects:
+            self.project_listbox.insert(tk.END, "(No projects - click 'New Project' to create one)")
+            return
+
+        for project_dir in self.projects:
+            status = self.athlete_manager.get_project_status(project_dir)
+            clips_info = f"{status['marked_count']}/{status['clips_count']} marked" if status['clips_count'] > 0 else "No clips"
+            final_status = " ✓" if status['has_final'] else ""
+            self.project_listbox.insert(tk.END, f"{project_dir.name} ({clips_info}){final_status}")
+
+    def select_project(self):
+        """Select the current project."""
+        selection = self.project_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a project.")
+            return
+
+        if not self.projects:
+            messagebox.showwarning("No Projects", "No projects available. Create a new project first.")
+            return
+
+        self.result = self.projects[selection[0]]
+        self.dialog.destroy()
+
+    def create_project(self):
+        """Create a new project (from scratch or by cloning)."""
+        # Check if there are existing projects to clone from (v2 only)
+        is_v2 = self.athlete_manager.is_v2_athlete(self.athlete_dir)
+        existing_projects = self.athlete_manager.discover_projects(self.athlete_dir) if is_v2 else []
+        has_cloneable = len(existing_projects) > 0
+
+        # Show creation method dialog if cloning is possible
+        create_dialog = tk.Toplevel(self.dialog)
+        create_dialog.title("New Project")
+        create_dialog.resizable(False, False)
+        create_dialog.transient(self.dialog)
+        create_dialog.grab_set()
+        create_dialog.geometry(f"+{self.dialog.winfo_rootx() + 50}+{self.dialog.winfo_rooty() + 100}")
+
+        # Track selected clone source
+        clone_source_var = tk.StringVar(value="")
+
+        if has_cloneable:
+            create_dialog.geometry("400x280")
+
+            # Creation method selection
+            method_frame = tk.LabelFrame(create_dialog, text="Creation Method", font=("Segoe UI", 9))
+            method_frame.pack(fill='x', padx=10, pady=10)
+
+            method_var = tk.StringVar(value="scratch")
+
+            tk.Radiobutton(method_frame, text="Start from scratch (empty project)",
+                          variable=method_var, value="scratch",
+                          font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+            tk.Radiobutton(method_frame, text="Clone existing project (copy clips and marks)",
+                          variable=method_var, value="clone",
+                          font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+
+            # Clone source selection (only enabled when clone is selected)
+            clone_frame = tk.LabelFrame(create_dialog, text="Clone From", font=("Segoe UI", 9))
+            clone_frame.pack(fill='x', padx=10, pady=5)
+
+            clone_combo = ttk.Combobox(clone_frame, textvariable=clone_source_var,
+                                       values=[p.name for p in existing_projects],
+                                       state='disabled', font=("Segoe UI", 9))
+            clone_combo.pack(fill='x', padx=5, pady=5)
+            if existing_projects:
+                clone_combo.set(existing_projects[0].name)
+
+            def on_method_change(*args):
+                if method_var.get() == "clone":
+                    clone_combo.config(state='readonly')
+                else:
+                    clone_combo.config(state='disabled')
+
+            method_var.trace_add('write', on_method_change)
+        else:
+            create_dialog.geometry("350x140")
+            method_var = tk.StringVar(value="scratch")
+
+        # Project name entry
+        name_frame = tk.LabelFrame(create_dialog, text="Project Name", font=("Segoe UI", 9))
+        name_frame.pack(fill='x', padx=10, pady=5)
+
+        name_var = tk.StringVar()
+        entry = tk.Entry(name_frame, textvariable=name_var, font=("Segoe UI", 10), width=35)
+        entry.pack(padx=5, pady=5)
+        entry.focus()
+
+        def do_create():
+            name = name_var.get().strip()
+            if not name:
+                messagebox.showerror("Error", "Please enter a project name.")
+                return
+
+            try:
+                if method_var.get() == "clone":
+                    # Validate clone source is selected
+                    if not clone_source_var.get():
+                        messagebox.showerror("Error", "Please select a project to clone from.")
+                        return
+                    # Clone from existing project
+                    project_dir = clone_project(
+                        self.athlete_dir,
+                        clone_source_var.get(),
+                        name
+                    )
+                else:
+                    # Create from scratch
+                    project_dir = self.athlete_manager.create_project_for_athlete(self.athlete_dir, name)
+                create_dialog.destroy()
+                self.result = project_dir
+                self.dialog.destroy()
+            except FileExistsError:
+                messagebox.showerror("Error", f"Project '{name}' already exists.")
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to create project: {e}")
+
+        btn_frame = tk.Frame(create_dialog)
+        btn_frame.pack(pady=10)
+
+        tk.Button(btn_frame, text="Create", command=do_create, bg="#4CAF50", fg="white").pack(side='left', padx=5)
+        tk.Button(btn_frame, text="Cancel", command=create_dialog.destroy).pack(side='left', padx=5)
+
+        create_dialog.bind('<Return>', lambda e: do_create())
+
+    def cancel(self):
+        """Cancel the dialog."""
+        self.result = None
+        self.dialog.destroy()
+
 
 class SoccerHypeGUI:
     """Main GUI application"""
@@ -343,35 +682,37 @@ class SoccerHypeGUI:
 
         tk.Button(button_frame, text="New Athlete", command=self.new_athlete,
                  bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold")).pack(side='left', padx=(0, 10))
+        tk.Button(button_frame, text="New Project", command=self.new_project,
+                 font=("Segoe UI", 10)).pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Refresh", command=self.refresh_athletes,
                  font=("Segoe UI", 10)).pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Batch Operations", command=self.batch_operations,
                  font=("Segoe UI", 10)).pack(side='right')
 
-        # Athletes list
+        # Projects list (flat view showing all projects across all athletes)
         list_frame = tk.Frame(main_frame)
         list_frame.pack(fill='both', expand=True)
 
-        tk.Label(list_frame, text="Athletes", font=("Segoe UI", 12, "bold")).pack(anchor='w')
+        tk.Label(list_frame, text="Projects", font=("Segoe UI", 12, "bold")).pack(anchor='w')
 
-        # Treeview for athletes with status
-        columns = ("Name", "Status", "Profile", "Clips", "Marked", "Rendered")
+        # Treeview for projects with status (one row per project)
+        columns = ("Athlete", "Project", "Status", "Clips", "Marked", "Rendered")
         self.athlete_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=15)
 
         # Configure columns
-        self.athlete_tree.heading("Name", text="Athlete Name")
-        self.athlete_tree.heading("Status", text="Workflow Status")
-        self.athlete_tree.heading("Profile", text="Has Profile")
-        self.athlete_tree.heading("Clips", text="Has Clips")
-        self.athlete_tree.heading("Marked", text="Clips Marked")
-        self.athlete_tree.heading("Rendered", text="Final Video")
+        self.athlete_tree.heading("Athlete", text="Athlete")
+        self.athlete_tree.heading("Project", text="Project")
+        self.athlete_tree.heading("Status", text="Status")
+        self.athlete_tree.heading("Clips", text="Clips")
+        self.athlete_tree.heading("Marked", text="Marked")
+        self.athlete_tree.heading("Rendered", text="Rendered")
 
-        self.athlete_tree.column("Name", width=200)
-        self.athlete_tree.column("Status", width=150)
-        self.athlete_tree.column("Profile", width=80)
-        self.athlete_tree.column("Clips", width=80)
-        self.athlete_tree.column("Marked", width=80)
-        self.athlete_tree.column("Rendered", width=80)
+        self.athlete_tree.column("Athlete", width=150)
+        self.athlete_tree.column("Project", width=120)
+        self.athlete_tree.column("Status", width=130)
+        self.athlete_tree.column("Clips", width=60, anchor='center')
+        self.athlete_tree.column("Marked", width=80, anchor='center')
+        self.athlete_tree.column("Rendered", width=70, anchor='center')
 
         # Scrollbar for treeview
         scrollbar = ttk.Scrollbar(list_frame, orient='vertical', command=self.athlete_tree.yview)
@@ -382,6 +723,21 @@ class SoccerHypeGUI:
 
         # Double-click to open athlete
         self.athlete_tree.bind("<Double-1>", self.open_athlete)
+
+        # Create context menu for right-click
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Open Folder", command=self.open_folder)
+        self.context_menu.add_command(label="Set Profile", command=self.set_profile)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Order Clips", command=self.reorder_clips)
+        self.context_menu.add_command(label="Mark Plays", command=self.mark_plays)
+        self.context_menu.add_command(label="Render Video", command=self.render_video)
+        self.context_menu.add_command(label="View Final Video", command=self.view_final)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Delete Project...", command=self.delete_project)
+
+        # Bind right-click
+        self.athlete_tree.bind("<Button-3>", self.show_context_menu)
 
         # Action buttons for selected athlete
         action_frame = tk.Frame(main_frame)
@@ -411,7 +767,7 @@ class SoccerHypeGUI:
                 print(f"Error refreshing athletes: {e}")
 
     def _refresh_athletes_impl(self):
-        """Implementation of refresh athletes"""
+        """Implementation of refresh - shows flat list of all projects"""
         # Clear existing items
         for item in self.athlete_tree.get_children():
             self.athlete_tree.delete(item)
@@ -419,61 +775,174 @@ class SoccerHypeGUI:
         athletes = self.athlete_manager.discover_athletes()
         if not athletes:
             # Show helpful message when no athletes exist
-            self.athlete_tree.insert("", 'end', values=("No athletes found", "Click 'New Athlete' to get started", "", "", "", ""))
+            self.athlete_tree.insert("", 'end', iid="_empty_",
+                                    values=("(No projects)", "Click 'New Athlete' to get started", "", "", "", ""))
             return
 
+        any_projects = False
+
         for athlete_dir in athletes:
-            status = self.athlete_manager.get_athlete_status(athlete_dir)
-
-            # Determine workflow status
-            if not status["has_clips"]:
-                workflow_status = "Needs clips"
-            elif not status["has_profile"]:
-                workflow_status = "Needs profile"
-            elif status["needs_marking"]:
-                workflow_status = "Ready to mark"
-            elif status["needs_rendering"]:
-                workflow_status = "Ready to render"
-            elif status["has_final"]:
-                workflow_status = "Complete"
+            # Get athlete profile to check if profile exists
+            v2 = is_v2_structure(athlete_dir)
+            if v2:
+                profile = get_athlete_profile(athlete_dir)
+                has_profile = bool(profile.get("name", "").strip())
             else:
-                workflow_status = "Unknown"
+                # v1: Check project.json for player data
+                project_json = athlete_dir / "project.json"
+                if project_json.exists():
+                    try:
+                        data = json.loads(project_json.read_text())
+                        has_profile = bool(data.get("player", {}).get("name", "").strip())
+                    except (IOError, json.JSONDecodeError):
+                        has_profile = False
+                else:
+                    has_profile = False
 
-            # Status indicators
-            profile_status = "✓" if status["has_profile"] else "✗"
-            clips_status = "✓" if status["has_clips"] else "✗"
-            # Show marking progress: ✓ if all marked, partial count if some marked, ✗ if none
-            if status["all_clips_marked"]:
-                marked_status = "✓"
-            elif status["marked_count"] > 0:
-                marked_status = f"{status['marked_count']}/{status['clips_count']}"
-            else:
-                marked_status = "✗"
-            rendered_status = "✓" if status["has_final"] else "✗"
+            # Get projects for this athlete
+            projects = self.athlete_manager.discover_projects(athlete_dir)
 
-            self.athlete_tree.insert("", 'end', values=(
-                athlete_dir.name,
-                workflow_status,
-                profile_status,
-                clips_status,
-                marked_status,
-                rendered_status
-            ))
+            if not projects:
+                # v2 athlete with no projects - show placeholder row
+                row_id = f"{athlete_dir.name}|_no_project_"
+                self.athlete_tree.insert("", 'end', iid=row_id,
+                                        values=(athlete_dir.name, "(no projects)", "Needs project", "✗", "✗", "✗"))
+                any_projects = True
+                continue
+
+            for project_dir in projects:
+                any_projects = True
+                status = self.athlete_manager.get_project_status(project_dir)
+
+                # Determine project display name
+                if v2:
+                    project_name = project_dir.name
+                else:
+                    project_name = "(default)"
+
+                # Create row ID for selection tracking
+                row_id = f"{athlete_dir.name}|{project_name}"
+
+                # Determine workflow status for this project
+                if not status["has_clips"]:
+                    workflow_status = "Needs clips"
+                elif not has_profile:
+                    workflow_status = "Needs profile"
+                elif status["needs_marking"]:
+                    workflow_status = "Ready to mark"
+                elif status["needs_rendering"]:
+                    workflow_status = "Ready to render"
+                elif status["has_final"]:
+                    workflow_status = "Complete"
+                else:
+                    workflow_status = "Unknown"
+
+                # Status indicators
+                clips_status = "✓" if status["has_clips"] else "✗"
+                # Show marking progress: ✓ if all marked, partial count if some marked, ✗ if none
+                if status["all_clips_marked"]:
+                    marked_status = "✓"
+                elif status["marked_count"] > 0:
+                    marked_status = f"{status['marked_count']}/{status['clips_count']}"
+                else:
+                    marked_status = "✗"
+                rendered_status = "✓" if status["has_final"] else "✗"
+
+                self.athlete_tree.insert("", 'end', iid=row_id, values=(
+                    athlete_dir.name,
+                    project_name,
+                    workflow_status,
+                    clips_status,
+                    marked_status,
+                    rendered_status
+                ))
+
+        if not any_projects:
+            self.athlete_tree.insert("", 'end', iid="_empty_",
+                                    values=("(No projects)", "Click 'New Athlete' to get started", "", "", "", ""))
 
     def get_selected_athlete(self) -> Optional[pathlib.Path]:
-        """Get currently selected athlete directory"""
+        """Get currently selected athlete directory (from project row)"""
+        athlete_dir, _ = self.get_selected_project()
+        return athlete_dir
+
+    def _get_selected_athlete_silent(self) -> Optional[pathlib.Path]:
+        """Get currently selected athlete directory without showing any warnings.
+
+        Returns:
+            The athlete directory path if a row is selected, None otherwise.
+        """
         selection = self.athlete_tree.selection()
         if not selection:
-            messagebox.showwarning("No Selection", "Please select an athlete first.")
             return None
 
-        item = self.athlete_tree.item(selection[0])
-        athlete_name = item['values'][0]
+        row_id = selection[0]
 
-        if athlete_name == "No athletes found":
+        # Handle special rows
+        if row_id == "_empty_":
+            return None
+        if row_id.endswith("|_no_project_"):
+            athlete_name = row_id.rsplit("|", 1)[0]
+            return ATHLETES / athlete_name
+
+        # Parse row_id: "athlete_name|project_name"
+        if "|" not in row_id:
             return None
 
-        return ATHLETES / athlete_name
+        athlete_name = row_id.split("|", 1)[0]
+        athlete_dir = ATHLETES / athlete_name
+
+        return athlete_dir if athlete_dir.exists() else None
+
+    def get_selected_project(self) -> tuple[Optional[pathlib.Path], Optional[pathlib.Path]]:
+        """Get currently selected (athlete_dir, project_dir) tuple.
+
+        Returns:
+            Tuple of (athlete_dir, project_dir). Both are None if nothing valid is selected.
+            For v1 athletes, project_dir equals athlete_dir.
+        """
+        selection = self.athlete_tree.selection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a project first.")
+            return None, None
+
+        row_id = selection[0]
+
+        # Handle special rows
+        if row_id == "_empty_" or row_id.endswith("|_no_project_"):
+            if row_id.endswith("|_no_project_"):
+                # Athlete exists but has no projects
+                athlete_name = row_id.rsplit("|", 1)[0]
+                return ATHLETES / athlete_name, None
+            return None, None
+
+        # Parse row_id: "athlete_name|project_name"
+        if "|" not in row_id:
+            return None, None
+
+        athlete_name, project_name = row_id.split("|", 1)
+        athlete_dir = ATHLETES / athlete_name
+
+        if not athlete_dir.exists():
+            return None, None
+
+        # Determine project directory
+        if project_name == "(default)":
+            # v1 structure: athlete dir IS the project dir
+            project_dir = athlete_dir
+        else:
+            # v2 structure: project is under projects/ subdirectory
+            project_dir = athlete_dir / "projects" / project_name
+
+        return athlete_dir, project_dir
+
+    def show_context_menu(self, event):
+        """Show context menu on right-click"""
+        # Select the row under cursor
+        row_id = self.athlete_tree.identify_row(event.y)
+        if row_id and row_id != "_empty_":
+            self.athlete_tree.selection_set(row_id)
+            self.context_menu.post(event.x_root, event.y_root)
 
     def new_athlete(self):
         """Create a new athlete"""
@@ -504,7 +973,11 @@ class SoccerHypeGUI:
             if athlete_dir:
                 dialog.destroy()
                 self.refresh_athletes()
-                messagebox.showinfo("Success", f"Created athlete folder: {athlete_dir.name}\n\nNext step: Add video clips to the 'clips_in' folder.")
+                messagebox.showinfo("Success",
+                    f"Created athlete: {athlete_dir.name}\n\n"
+                    f"A 'Default' project was created.\n\n"
+                    f"Next step: Add video clips to:\n"
+                    f"{athlete_dir}/projects/Default/clips_in/")
 
         def cancel():
             dialog.destroy()
@@ -518,13 +991,174 @@ class SoccerHypeGUI:
         # Enter key to create
         dialog.bind('<Return>', lambda e: create())
 
+    def new_project(self):
+        """Create a new project for an athlete (with athlete selection dropdown)"""
+        # Get all athletes
+        all_athletes = self.athlete_manager.discover_athletes()
+        if not all_athletes:
+            messagebox.showerror("No Athletes",
+                "No athletes found. Please create an athlete first.")
+            return
+
+        # Try to get pre-selected athlete (silently, no warning)
+        preselected_athlete = self._get_selected_athlete_silent()
+
+        # Show creation dialog
+        create_dialog = tk.Toplevel(self.root)
+        create_dialog.title("New Project")
+        create_dialog.resizable(False, False)
+        create_dialog.transient(self.root)
+        create_dialog.grab_set()
+        create_dialog.geometry(f"+{self.root.winfo_rootx() + 150}+{self.root.winfo_rooty() + 100}")
+
+        # Athlete selection dropdown
+        athlete_frame = tk.LabelFrame(create_dialog, text="Athlete", font=("Segoe UI", 9))
+        athlete_frame.pack(fill='x', padx=10, pady=10)
+
+        athlete_names = [a.name for a in all_athletes]
+        athlete_var = tk.StringVar()
+        athlete_combo = ttk.Combobox(athlete_frame, textvariable=athlete_var,
+                                     values=athlete_names, state='readonly',
+                                     font=("Segoe UI", 9))
+        athlete_combo.pack(fill='x', padx=5, pady=5)
+
+        # Pre-select athlete if one was selected, otherwise default to first
+        if preselected_athlete and preselected_athlete.name in athlete_names:
+            athlete_combo.set(preselected_athlete.name)
+        else:
+            athlete_combo.set(athlete_names[0])
+
+        # Track selected clone source and method
+        clone_source_var = tk.StringVar(value="")
+        method_var = tk.StringVar(value="scratch")
+
+        # Clone UI elements (created once, visibility managed dynamically)
+        method_frame = tk.LabelFrame(create_dialog, text="Creation Method", font=("Segoe UI", 9))
+        tk.Radiobutton(method_frame, text="Start from scratch (empty project)",
+                      variable=method_var, value="scratch",
+                      font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+        tk.Radiobutton(method_frame, text="Clone existing project (copy clips and marks)",
+                      variable=method_var, value="clone",
+                      font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+
+        clone_frame = tk.LabelFrame(create_dialog, text="Clone From", font=("Segoe UI", 9))
+        clone_combo = ttk.Combobox(clone_frame, textvariable=clone_source_var,
+                                   state='disabled', font=("Segoe UI", 9))
+        clone_combo.pack(fill='x', padx=5, pady=5)
+
+        def on_method_change(*args):
+            if method_var.get() == "clone":
+                clone_combo.config(state='readonly')
+            else:
+                clone_combo.config(state='disabled')
+
+        method_var.trace_add('write', on_method_change)
+
+        def update_clone_options(*args):
+            """Update clone options when athlete selection changes"""
+            selected_name = athlete_var.get()
+            if not selected_name:
+                return
+
+            athlete_dir = ATHLETES / selected_name
+            # Only v2 athletes support cloning (v1 has no separate projects)
+            is_v2 = self.athlete_manager.is_v2_athlete(athlete_dir)
+            existing_projects = self.athlete_manager.discover_projects(athlete_dir) if is_v2 else []
+            has_cloneable = len(existing_projects) > 0
+
+            if has_cloneable:
+                method_frame.pack(fill='x', padx=10, pady=5, after=athlete_frame)
+                clone_frame.pack(fill='x', padx=10, pady=5, after=method_frame)
+                clone_combo.config(values=[p.name for p in existing_projects])
+                clone_combo.set(existing_projects[0].name)
+                create_dialog.geometry("400x330")
+            else:
+                method_frame.pack_forget()
+                clone_frame.pack_forget()
+                method_var.set("scratch")
+                create_dialog.geometry("350x190")
+
+        athlete_var.trace_add('write', update_clone_options)
+        # Initialize clone options for the default athlete
+        update_clone_options()
+
+        # Project name entry
+        name_frame = tk.LabelFrame(create_dialog, text="Project Name", font=("Segoe UI", 9))
+        name_frame.pack(fill='x', padx=10, pady=5)
+
+        name_var = tk.StringVar()
+        entry = tk.Entry(name_frame, textvariable=name_var, font=("Segoe UI", 10), width=35)
+        entry.pack(padx=5, pady=5)
+        entry.focus()
+
+        def do_create():
+            name = name_var.get().strip()
+            if not name:
+                messagebox.showerror("Error", "Please enter a project name.")
+                return
+
+            selected_athlete_name = athlete_var.get()
+            if not selected_athlete_name:
+                messagebox.showerror("Error", "Please select an athlete.")
+                return
+
+            # Security: Validate athlete name doesn't contain path traversal
+            if "/" in selected_athlete_name or "\\" in selected_athlete_name:
+                messagebox.showerror("Error", "Invalid athlete name.")
+                return
+
+            athlete_dir = ATHLETES / selected_athlete_name
+
+            try:
+                if method_var.get() == "clone":
+                    # Validate clone source is selected
+                    if not clone_source_var.get():
+                        messagebox.showerror("Error", "Please select a project to clone from.")
+                        return
+                    # Clone from existing project
+                    project_dir = clone_project(
+                        athlete_dir,
+                        clone_source_var.get(),
+                        name
+                    )
+                else:
+                    # Create from scratch
+                    project_dir = self.athlete_manager.create_project_for_athlete(athlete_dir, name)
+
+                create_dialog.destroy()
+                self.refresh_athletes()
+                messagebox.showinfo("Success",
+                    f"Created project: {name}\n\n"
+                    f"Next step: Add video clips to:\n"
+                    f"{project_dir}/clips_in/")
+            except FileExistsError:
+                messagebox.showerror("Error", f"Project '{name}' already exists.")
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to create project: {e}")
+
+        btn_frame = tk.Frame(create_dialog)
+        btn_frame.pack(pady=10)
+
+        tk.Button(btn_frame, text="Create", command=do_create, bg="#4CAF50", fg="white").pack(side='left', padx=5)
+        tk.Button(btn_frame, text="Cancel", command=create_dialog.destroy).pack(side='left', padx=5)
+
+        create_dialog.bind('<Return>', lambda e: do_create())
+
     def open_athlete(self, event=None):
-        """Open athlete workflow (double-click handler)"""
-        athlete_dir = self.get_selected_athlete()
+        """Open project workflow (double-click handler)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        status = self.athlete_manager.get_athlete_status(athlete_dir)
+        # If no project exists, open folder to add one
+        if not project_dir:
+            self.open_folder()
+            return
+
+        # Get project-level status
+        status = self.athlete_manager.get_project_status(project_dir)
 
         if not status["has_clips"]:
             self.open_folder()
@@ -536,24 +1170,68 @@ class SoccerHypeGUI:
             self.view_final()
 
     def open_folder(self):
-        """Open athlete folder in file manager"""
-        athlete_dir = self.get_selected_athlete()
+        """Open project folder in file manager (directly from selected row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
+
+        # Use project folder if available, otherwise athlete folder
+        folder_to_open = project_dir if project_dir else athlete_dir
 
         try:
             import platform
             system = platform.system()
             if system == "Linux":
-                subprocess.run(["xdg-open", str(athlete_dir)], check=True)
+                subprocess.run(["xdg-open", str(folder_to_open)], check=True)
             elif system == "Darwin":  # macOS
-                subprocess.run(["open", str(athlete_dir)], check=True)
+                subprocess.run(["open", str(folder_to_open)], check=True)
             elif system == "Windows":
-                subprocess.run(["explorer", str(athlete_dir)], check=True)
+                subprocess.run(["explorer", str(folder_to_open)], check=True)
             else:
-                messagebox.showinfo("Info", f"Please open folder manually: {athlete_dir}")
+                messagebox.showinfo("Info", f"Please open folder manually: {folder_to_open}")
         except (subprocess.CalledProcessError, FileNotFoundError):
-            messagebox.showerror("Error", f"Could not open folder: {athlete_dir}")
+            messagebox.showerror("Error", f"Could not open folder: {folder_to_open}")
+
+    def delete_project(self):
+        """Delete the selected project after confirmation"""
+        athlete_dir, project_dir = self.get_selected_project()
+        if not athlete_dir or not project_dir:
+            return
+
+        # Security: Validate project_dir is within ATHLETES directory
+        try:
+            project_dir.resolve().relative_to(ATHLETES.resolve())
+        except ValueError:
+            messagebox.showerror("Error", "Invalid project path.")
+            return
+
+        # Prevent deleting v1 athlete (would delete entire athlete)
+        if athlete_dir == project_dir:
+            messagebox.showerror("Cannot Delete",
+                "This is a legacy (v1) athlete folder.\n\n"
+                "To delete it, remove the folder manually from the file system.")
+            return
+
+        project_name = project_dir.name
+        athlete_name = athlete_dir.name
+
+        # Confirmation dialog
+        result = messagebox.askyesno("Delete Project",
+            f"Delete project '{project_name}' for {athlete_name}?\n\n"
+            f"This will permanently delete:\n"
+            f"  • All video clips in clips_in/\n"
+            f"  • All marking data\n"
+            f"  • The rendered video (if any)\n\n"
+            f"This cannot be undone.",
+            icon='warning')
+
+        if result:
+            try:
+                shutil.rmtree(project_dir)
+                self.refresh_athletes()
+                messagebox.showinfo("Deleted", f"Project '{project_name}' has been deleted.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete project: {e}")
 
     def set_profile(self):
         """Set player profile information for selected athlete"""
@@ -561,11 +1239,24 @@ class SoccerHypeGUI:
         if not athlete_dir:
             return
 
-        # Check if project already exists
-        project_exists = (athlete_dir / "project.json").exists()
+        # Check structure type and if profile/project exists
+        v2 = is_v2_structure(athlete_dir)
 
-        # Show player information dialog
-        dialog = PlayerInfoDialog(self.root, athlete_dir.name, project_exists)
+        if v2:
+            # v2: Check if athlete.json exists
+            profile_exists = (athlete_dir / "athlete.json").exists()
+        else:
+            # v1: Check if project.json exists
+            profile_exists = (athlete_dir / "project.json").exists()
+
+        # Show player information dialog with v2 awareness
+        dialog = PlayerInfoDialog(
+            self.root,
+            athlete_dir.name,
+            project_exists=profile_exists,
+            athlete_dir=athlete_dir,
+            is_v2=v2
+        )
 
         if dialog.result is None:
             # User cancelled
@@ -576,37 +1267,69 @@ class SoccerHypeGUI:
             self.refresh_athletes()
 
     def mark_plays(self):
-        """Launch mark_play.py for selected athlete"""
-        athlete_dir = self.get_selected_athlete()
+        """Launch mark_play.py for selected project (directly from row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        status = self.athlete_manager.get_athlete_status(athlete_dir)
-        if not status["has_clips"]:
-            messagebox.showwarning("No Clips", f"No clips found in {athlete_dir.name}/clips_in/\n\nAdd video clips first.")
+        if not project_dir:
+            messagebox.showwarning("No Project", "Please select a project first, or create one with 'New Project'.")
             return
 
-        # Check if profile exists
-        if not status["has_profile"]:
+        # Check clips in the specific project
+        clips_in = project_dir / "clips_in"
+        has_clips = clips_in.exists() and any(clips_in.iterdir()) if clips_in.exists() else False
+        if not has_clips:
+            messagebox.showwarning("No Clips", f"No clips found in {project_dir}/clips_in/\n\nAdd video clips first.")
+            return
+
+        # Check if profile exists (v2: athlete.json, v1: project.json)
+        v2 = is_v2_structure(athlete_dir)
+        if v2:
+            profile = get_athlete_profile(athlete_dir)
+            has_profile = bool(profile.get("name", "").strip())
+        else:
+            project_path = project_dir / "project.json"
+            if project_path.exists():
+                try:
+                    data = json.loads(project_path.read_text())
+                    has_profile = bool(data.get("player", {}).get("name", "").strip())
+                except (IOError, json.JSONDecodeError):
+                    has_profile = False
+            else:
+                has_profile = False
+
+        if not has_profile:
             messagebox.showwarning("No Profile",
                                  f"No player profile found for {athlete_dir.name}\n\n"
                                  "Please click 'Set Profile' first to enter player information.")
             return
 
-        # Load existing profile data from project.json
-        import json
-        project_path = athlete_dir / "project.json"
-        try:
-            project_data = json.loads(project_path.read_text())
-            player_data = project_data.get("player", {})
-            include_intro = project_data.get("include_intro", True)
-            intro_media = project_data.get("intro_media")
-        except (IOError, json.JSONDecodeError) as e:
-            messagebox.showerror("Error", f"Failed to read profile: {e}")
-            return
+        # Load profile and project data
+        if v2:
+            player_data = get_athlete_profile(athlete_dir)
+            project_path = project_dir / "project.json"
+            if project_path.exists():
+                try:
+                    project_data = json.loads(project_path.read_text())
+                except (IOError, json.JSONDecodeError):
+                    project_data = {}
+            else:
+                project_data = {}
+        else:
+            project_path = project_dir / "project.json"
+            try:
+                project_data = json.loads(project_path.read_text())
+                player_data = project_data.get("player", {})
+            except (IOError, json.JSONDecodeError) as e:
+                messagebox.showerror("Error", f"Failed to read profile: {e}")
+                return
 
-        # Build command line arguments
-        args = ["--dir", str(athlete_dir), "--overwrite"]
+        include_intro = project_data.get("include_intro", True)
+        intro_media = project_data.get("intro_media")
+
+        # Build command line arguments - use project_dir for mark_play.py
+        args = ["--dir", str(project_dir), "--overwrite"]
 
         if include_intro:
             args.append("--include-intro")
@@ -637,49 +1360,77 @@ class SoccerHypeGUI:
         if intro_media:
             args.extend(["--intro-media", intro_media])
 
+        # Display name for status
+        display_name = f"{athlete_dir.name}/{project_dir.name}" if v2 else athlete_dir.name
         self.run_script_async("mark_play.py", args,
-                             "Marking Plays", f"Launching play marking for {athlete_dir.name}")
+                             "Marking Plays", f"Launching play marking for {display_name}")
 
     def reorder_clips(self):
-        """Launch reorder_clips.py for selected athlete"""
-        athlete_dir = self.get_selected_athlete()
+        """Launch reorder_clips.py for selected project (directly from row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        status = self.athlete_manager.get_athlete_status(athlete_dir)
-        if not status["has_project"]:
-            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nSet Profile first.")
+        if not project_dir:
+            messagebox.showwarning("No Project", "Please select a project first, or create one with 'New Project'.")
             return
 
-        self.run_script_async("reorder_clips.py", ["--dir", str(athlete_dir)],
-                             "Ordering Clips", f"Launching clip ordering for {athlete_dir.name}")
+        # Check if project exists
+        project_path = project_dir / "project.json"
+        if not project_path.exists():
+            messagebox.showwarning("No Project", f"No project file found.\n\nSet Profile first.")
+            return
+
+        v2 = is_v2_structure(athlete_dir)
+        display_name = f"{athlete_dir.name}/{project_dir.name}" if v2 else athlete_dir.name
+        self.run_script_async("reorder_clips.py", ["--dir", str(project_dir)],
+                             "Ordering Clips", f"Launching clip ordering for {display_name}")
 
     def render_video(self):
-        """Launch render_highlight.py for selected athlete"""
-        athlete_dir = self.get_selected_athlete()
+        """Launch render_highlight.py for selected project (directly from row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        status = self.athlete_manager.get_athlete_status(athlete_dir)
-        if not status["has_project"]:
-            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nSet Profile first, then Order Clips and Mark Plays.")
+        if not project_dir:
+            messagebox.showwarning("No Project", "Please select a project first, or create one with 'New Project'.")
             return
 
-        if not status["all_clips_marked"]:
-            if status["clips_count"] == 0:
-                messagebox.showwarning("No Clips", f"No clips in project for {athlete_dir.name}\n\nUse Order Clips to sync clips from clips_in/ folder.")
+        # Check project status for the specific project
+        project_path = project_dir / "project.json"
+        if not project_path.exists():
+            messagebox.showwarning("No Project", f"No project file found.\n\nSet Profile first, then Order Clips and Mark Plays.")
+            return
+
+        # Load project data to check marking status
+        try:
+            project_data = json.loads(project_path.read_text())
+            clips = project_data.get("clips", [])
+            clips_count = len(clips)
+            marked_count = sum(1 for clip in clips if is_clip_marked(clip))
+            all_marked = clips_count > 0 and marked_count == clips_count
+        except (IOError, json.JSONDecodeError):
+            messagebox.showerror("Error", "Failed to read project file.")
+            return
+
+        v2 = is_v2_structure(athlete_dir)
+        display_name = f"{athlete_dir.name}/{project_dir.name}" if v2 else athlete_dir.name
+
+        if not all_marked:
+            if clips_count == 0:
+                messagebox.showwarning("No Clips", f"No clips in project for {display_name}\n\nUse Order Clips to sync clips from clips_in/ folder.")
             else:
                 messagebox.showwarning("Clips Not Marked",
-                    f"{status['marked_count']}/{status['clips_count']} clips marked for {athlete_dir.name}\n\n"
+                    f"{marked_count}/{clips_count} clips marked for {display_name}\n\n"
                     "Use Mark Plays to mark all clips before rendering.")
             return
 
         # Check if final video already exists
-        final_video = athlete_dir / "output" / "final.mp4"
+        final_video = project_dir / "output" / "final.mp4"
         if final_video.exists():
             result = messagebox.askyesno(
                 "Re-render Video",
-                f"A rendered video already exists for {athlete_dir.name}.\n\n"
+                f"A rendered video already exists for {display_name}.\n\n"
                 "Do you want to render it again?\n\n"
                 "This will overwrite the existing video.",
                 icon='question'
@@ -687,18 +1438,25 @@ class SoccerHypeGUI:
             if not result:
                 return
 
-        self.run_script_async("render_highlight.py", ["--dir", str(athlete_dir)],
-                             "Rendering Video", f"Rendering highlight video for {athlete_dir.name}")
+        self.run_script_async("render_highlight.py", ["--dir", str(project_dir)],
+                             "Rendering Video", f"Rendering highlight video for {display_name}")
 
     def view_final(self):
-        """Open final video in default player"""
-        athlete_dir = self.get_selected_athlete()
+        """Open final video in default player (directly from selected row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        final_video = athlete_dir / "output" / "final.mp4"
+        if not project_dir:
+            messagebox.showwarning("No Project", "Please select a project first.")
+            return
+
+        v2 = is_v2_structure(athlete_dir)
+        display_name = f"{athlete_dir.name}/{project_dir.name}" if v2 else athlete_dir.name
+
+        final_video = project_dir / "output" / "final.mp4"
         if not final_video.exists():
-            messagebox.showwarning("No Video", f"Final video not found for {athlete_dir.name}\n\nRender video first.")
+            messagebox.showwarning("No Video", f"Final video not found for {display_name}\n\nRender video first.")
             return
 
         try:
@@ -775,9 +1533,16 @@ class SoccerHypeGUI:
 class PlayerInfoDialog:
     """Dialog for collecting player information before marking plays"""
 
-    def __init__(self, parent, athlete_name, project_exists=False):
+    def __init__(self, parent, athlete_name, project_exists=False, athlete_dir=None, is_v2=False):
         self.result = None
         self.athlete_name = athlete_name
+        self.is_v2 = is_v2
+
+        # Store athlete directory for path operations
+        if athlete_dir:
+            self.athlete_dir = pathlib.Path(athlete_dir)
+        else:
+            self.athlete_dir = pathlib.Path.cwd() / "athletes" / athlete_name
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f"Player Information - {athlete_name}")
@@ -809,6 +1574,7 @@ class PlayerInfoDialog:
         self.selected_profile_id = None
 
         self.setup_ui(project_exists)
+        self.load_existing_profile()  # Load existing profile data
         self.scan_existing_media()  # Check for existing intro media
 
         # Wait for dialog to complete
@@ -972,10 +1738,58 @@ class PlayerInfoDialog:
         if hasattr(self, '_name_entry'):
             self._name_entry.focus()
 
+    def load_existing_profile(self):
+        """Load existing profile data to pre-populate the form."""
+        try:
+            if self.is_v2:
+                # v2: Load from athlete.json
+                athlete_json = self.athlete_dir / "athlete.json"
+                if athlete_json.exists():
+                    data = json.loads(athlete_json.read_text())
+                    self._populate_form_from_data(data)
+            else:
+                # v1: Load from project.json
+                project_json = self.athlete_dir / "project.json"
+                if project_json.exists():
+                    data = json.loads(project_json.read_text())
+                    player_data = data.get("player", {})
+                    self._populate_form_from_data(player_data)
+                    # Also load intro settings
+                    self.include_intro_var.set(data.get("include_intro", True))
+                    if data.get("intro_media"):
+                        intro_path = self.athlete_dir / data["intro_media"]
+                        if intro_path.exists():
+                            self.selected_media_var.set(str(intro_path))
+                            self.current_media_label.config(text=f"Selected: {intro_path.name}")
+        except (IOError, json.JSONDecodeError):
+            pass  # No existing data to load
+
+    def _populate_form_from_data(self, data: dict):
+        """Populate form fields from a data dictionary."""
+        if data.get("name"):
+            self.name_var.set(data["name"])
+        if data.get("title"):
+            self.title_var.set(data["title"])
+        if data.get("position"):
+            self.position_var.set(data["position"])
+        if data.get("grad_year"):
+            self.grad_year_var.set(data["grad_year"])
+        if data.get("club_team"):
+            self.club_team_var.set(data["club_team"])
+        if data.get("high_school"):
+            self.high_school_var.set(data["high_school"])
+        if data.get("height_weight"):
+            self.height_weight_var.set(data["height_weight"])
+        if data.get("gpa"):
+            self.gpa_var.set(data["gpa"])
+        if data.get("email"):
+            self.email_var.set(data["email"])
+        if data.get("phone"):
+            self.phone_var.set(data["phone"])
+
     def scan_existing_media(self):
         """Scan for existing intro media files"""
-        athlete_dir = pathlib.Path("athletes") / self.athlete_name
-        intro_dir = athlete_dir / "intro"
+        intro_dir = self.athlete_dir / "intro"
 
         self.media_files = []
         if intro_dir.exists():
@@ -1011,8 +1825,7 @@ class PlayerInfoDialog:
         if files:
             try:
                 # Create intro directory if it doesn't exist
-                athlete_dir = pathlib.Path("athletes") / self.athlete_name
-                intro_dir = athlete_dir / "intro"
+                intro_dir = self.athlete_dir / "intro"
                 intro_dir.mkdir(parents=True, exist_ok=True)
 
                 copied_files = []
@@ -1157,62 +1970,95 @@ class PlayerInfoDialog:
             "phone": self.phone_var.get().strip(),
         }
 
-        # Determine the athlete directory path first
-        import pathlib
-        import json
-        athletes_dir = pathlib.Path.cwd() / "athletes"
-        athlete_dir = athletes_dir / self.athlete_name
-        project_path = athlete_dir / "project.json"
-
-        # Save to project.json with minimal structure
+        # Calculate relative intro media path
         selected_media_path = self.selected_media_var.get() if self.selected_media_var.get() else None
         intro_media = None
         if selected_media_path:
-            # Convert absolute path to relative path from athlete directory
             media_path = pathlib.Path(selected_media_path)
             try:
-                intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
+                intro_media = str(media_path.relative_to(self.athlete_dir)) if media_path.exists() else None
             except ValueError:
-                # Path is not relative to athlete_dir (file selected from elsewhere)
-                # Check if it's actually in the intro folder but path wasn't relative
-                intro_dir = athlete_dir / "intro"
+                intro_dir = self.athlete_dir / "intro"
                 if media_path.exists() and intro_dir in media_path.parents:
-                    # File is in intro folder, make it relative
-                    intro_media = str(media_path.relative_to(athlete_dir))
+                    intro_media = str(media_path.relative_to(self.athlete_dir))
                 elif media_path.exists() and (intro_dir / media_path.name).exists():
-                    # File with same name exists in intro folder (likely was copied)
                     intro_media = str(pathlib.Path("intro") / media_path.name)
                 else:
-                    # File is outside athlete_dir and not in intro - log warning
                     print(f"Warning: Media file {media_path} is outside athlete directory")
                     intro_media = None
 
-        # Preserve existing clips if project already exists
-        existing_clips = []
-        if project_path.exists():
-            try:
-                existing_data = json.loads(project_path.read_text())
-                existing_clips = existing_data.get("clips", [])
-            except (IOError, json.JSONDecodeError):
-                pass  # If we can't read existing file, start fresh
-
-        project_data = {
-            "player": player_data,
-            "include_intro": self.include_intro_var.get(),
-            "intro_media": intro_media,
-            "clips": existing_clips  # Preserve existing clips
-        }
-
         try:
             # Ensure the athlete directory exists
-            athlete_dir.mkdir(parents=True, exist_ok=True)
+            self.athlete_dir.mkdir(parents=True, exist_ok=True)
 
-            # Save the project file
-            with open(project_path, 'w') as f:
-                json.dump(project_data, f, indent=2)
+            if self.is_v2:
+                # v2: Save player profile to athlete.json
+                athlete_json_path = self.athlete_dir / "athlete.json"
 
-            messagebox.showinfo("Success",
-                f"Player information saved successfully!\n\nFile: {project_path}")
+                # Load existing athlete.json or create new
+                if athlete_json_path.exists():
+                    try:
+                        athlete_data = json.loads(athlete_json_path.read_text())
+                    except (IOError, json.JSONDecodeError):
+                        athlete_data = {}
+                else:
+                    athlete_data = {}
+
+                # Update with new player data
+                athlete_data.update(player_data)
+                athlete_data["schema_version"] = SCHEMA_VERSION
+
+                # Save athlete.json
+                with open(athlete_json_path, 'w') as f:
+                    json.dump(athlete_data, f, indent=2)
+
+                # Intro settings are stored per-project in v2, but we can set a default
+                # by updating each project that doesn't have intro_media set
+                projects_dir = self.athlete_dir / "projects"
+                if projects_dir.exists():
+                    for project_dir in projects_dir.iterdir():
+                        if project_dir.is_dir():
+                            project_json_path = project_dir / "project.json"
+                            if project_json_path.exists():
+                                try:
+                                    project_data = json.loads(project_json_path.read_text())
+                                    # Update include_intro preference
+                                    project_data["include_intro"] = self.include_intro_var.get()
+                                    # Only update intro_media if not already set
+                                    if not project_data.get("intro_media") and intro_media:
+                                        project_data["intro_media"] = intro_media
+                                    with open(project_json_path, 'w') as f:
+                                        json.dump(project_data, f, indent=2)
+                                except (IOError, json.JSONDecodeError):
+                                    pass
+
+                messagebox.showinfo("Success",
+                    f"Player profile saved successfully!\n\nFile: {athlete_json_path}")
+            else:
+                # v1: Save to project.json (legacy behavior)
+                project_path = self.athlete_dir / "project.json"
+
+                # Preserve existing clips if project already exists
+                existing_clips = []
+                if project_path.exists():
+                    try:
+                        existing_data = json.loads(project_path.read_text())
+                        existing_clips = existing_data.get("clips", [])
+                    except (IOError, json.JSONDecodeError):
+                        pass
+
+                project_data = {
+                    "player": player_data,
+                    "include_intro": self.include_intro_var.get(),
+                    "intro_media": intro_media,
+                    "clips": existing_clips
+                }
+
+                with open(project_path, 'w') as f:
+                    json.dump(project_data, f, indent=2)
+
+                messagebox.showinfo("Success",
+                    f"Player information saved successfully!\n\nFile: {project_path}")
 
             # Set result to indicate save-only operation
             self.result = "save_only"

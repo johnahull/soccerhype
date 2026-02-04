@@ -61,14 +61,24 @@ python reorder_clips_enhanced.py
 
 **1. Create athlete folder structure:**
 ```bash
+# Create v2 athlete with default project
 python create_athlete.py "Athlete Name"
+
+# Create additional projects for existing athlete
+python create_project.py --athlete "Athlete Name" --project "Spring 2026"
+
+# Create legacy v1 structure (single project)
+python create_athlete.py --legacy "Athlete Name"
 ```
 
 **2. Order clips with GUI (syncs clips_in/ folder):**
 ```bash
 python reorder_clips.py
-# Or target specific athlete:
+# Target specific athlete (prompts for project if v2):
 python reorder_clips.py --athlete "Athlete Name"
+# Target specific project directly:
+python reorder_clips.py --athlete "Athlete Name" --project "Fall 2025"
+python reorder_clips.py --dir athletes/Athlete\ Name/projects/Fall\ 2025
 # Note: Auto-syncs clips_in/ folder on launch
 # Uses system video player for preview (xdg-open/open/os.startfile)
 ```
@@ -76,18 +86,23 @@ python reorder_clips.py --athlete "Athlete Name"
 **3. Mark plays interactively:**
 ```bash
 python mark_play.py
-# Or target specific athlete:
+# Target specific athlete (prompts for project if v2):
 python mark_play.py --athlete "Athlete Name"
-python mark_play.py --dir athletes/athlete_name
+# Target specific project:
+python mark_play.py --athlete "Athlete Name" --project "Fall 2025"
+python mark_play.py --dir athletes/Athlete\ Name/projects/Fall\ 2025
 # Note: Only marks unmarked clips by default (use --all to re-mark)
 ```
 
 **4. Render final highlight video:**
 ```bash
-python render_highlight.py --dir athletes/athlete_name
+# Target specific project:
+python render_highlight.py --dir athletes/Athlete\ Name/projects/Fall\ 2025
+# Or use athlete + project flags:
+python render_highlight.py --athlete "Athlete Name" --project "Fall 2025"
 # Options:
-python render_highlight.py --dir athletes/athlete_name --reset-intro  # Choose intro media again
-python render_highlight.py --dir athletes/athlete_name --keep-work    # Keep temp files
+python render_highlight.py --dir <project_dir> --reset-intro  # Choose intro media again
+python render_highlight.py --dir <project_dir> --keep-work    # Keep temp files
 ```
 
 **5. Batch process multiple athletes:**
@@ -95,40 +110,115 @@ python render_highlight.py --dir athletes/athlete_name --keep-work    # Keep tem
 python batch_render.py
 # Options:
 python batch_render.py --names "Jane Smith" "John Doe" --force --jobs 2
+# Note: For v2 athletes, all projects are processed
+```
+
+**6. Migration tools (v1 → v2):**
+```bash
+# Migrate a single legacy folder
+python migrate_athlete.py "athletes/Phia Hull - Dec Highlight"
+python migrate_athlete.py --dry-run "athletes/Phia Hull - Dec Highlight"
+python migrate_athlete.py --all  # Migrate all legacy folders
+
+# Merge multiple legacy folders into one v2 athlete
+python merge_athletes.py "Phia Hull"
+python merge_athletes.py --list  # Show merge candidates
+```
+
+**7. Sync clips (add/remove without losing marks):**
+```bash
+python clip_sync.py
+python clip_sync.py --athlete "Athlete Name" --project "Fall 2025"
+python clip_sync.py --dry-run  # Show what would change
 ```
 
 ## Project Architecture
 
-**Directory Structure:**
+**Directory Structure (v2 - Multi-Project):**
+
+The default structure supports multiple projects per athlete, with shared profile and intro media:
+
+```
+athletes/
+├── Athlete Name/
+│   ├── athlete.json          # Shared player profile (name, position, contact, etc.)
+│   ├── intro/                # Shared intro media (pictures, videos)
+│   └── projects/
+│       ├── Fall 2025/
+│       │   ├── project.json  # Project-specific settings and clips
+│       │   ├── clips_in/     # Source videos for this project
+│       │   ├── work/proxies/ # Auto-generated proxies
+│       │   └── output/       # Final rendered video (final.mp4)
+│       └── Spring 2026/
+│           └── ...
+```
+
+**Directory Structure (v1 - Legacy):**
+
+Legacy single-project structure (still supported):
+
 ```
 athletes/
 ├── athlete_name/
 │   ├── clips_in/           # Drop source videos here
-│   ├── intro/              # Player pictures or intro videos for slate customization
+│   ├── intro/              # Player pictures or intro videos
 │   ├── work/proxies/       # Auto-generated standardized proxies
 │   ├── output/             # Final rendered video (final.mp4)
-│   └── project.json        # Athlete metadata and clip marking data
+│   └── project.json        # Player metadata AND clip marking data
 ```
 
 **Key Components:**
 
-- **create_athlete.py**: Sets up folder structure for new athletes (including intro directory)
-- **mark_play.py**: Interactive video player for marking athlete positions with full transport controls (space/arrow keys/mouse)
-- **reorder_clips.py**: Tkinter GUI for visual clip reordering with playback preview
-- **render_highlight.py**: FFmpeg-based renderer that creates final highlight video with red ring overlays and customizable intro slates
-- **batch_render.py**: Parallel processing of multiple athletes
+- **create_athlete.py**: Sets up v2 folder structure with default project (use `--legacy` for v1)
+- **create_project.py**: Creates new projects under an existing athlete
+- **mark_play.py**: Interactive video player for marking athlete positions (supports `--project` option)
+- **reorder_clips.py**: Tkinter GUI for visual clip reordering (supports `--project` option)
+- **render_highlight.py**: FFmpeg-based renderer (supports `--project` option)
+- **batch_render.py**: Parallel processing of multiple athletes and projects
+- **migrate_athlete.py**: Migrates legacy (v1) folders to v2 multi-project structure
+- **merge_athletes.py**: Merges multiple legacy folders into a single v2 athlete
+- **clip_sync.py**: Syncs clips_in/ folder with project.json (add/remove clips without losing marks)
+- **utils/structure.py**: Centralized structure detection and path resolution utilities
 
-**project.json Structure:**
-Contains athlete metadata and clip data with standardized coordinates:
+**Data Model:**
 
-*Player metadata fields:*
-- `name`: Player's full name
-- `title`: Optional title displayed above name on slate (e.g., "Fall 2025 Highlight Video")
-- `position`: Playing position
-- `grad_year`: Graduation year
-- `club_team`, `high_school`: Team affiliations
-- `height_weight`, `gpa`: Physical/academic stats
-- `email`, `phone`: Contact information
+*athlete.json (v2 only - shared profile):*
+```json
+{
+  "schema_version": "2.0",
+  "name": "Player Name",
+  "title": "Optional title for slate",
+  "position": "MF",
+  "grad_year": "2026",
+  "club_team": "Team Name",
+  "high_school": "School Name",
+  "height_weight": "5'8\" / 140 lbs",
+  "gpa": "4.0",
+  "email": "player@example.com",
+  "phone": "555-1234"
+}
+```
+
+*project.json (v2 - per project):*
+```json
+{
+  "schema_version": "2.0",
+  "project_name": "Fall 2025",
+  "include_intro": true,
+  "intro_media": "intro/player-photo.jpg",
+  "clips": [...]
+}
+```
+
+*project.json (v1 - legacy, includes player data):*
+```json
+{
+  "player": { "name": "...", "position": "...", ... },
+  "include_intro": true,
+  "intro_media": "intro/player-photo.jpg",
+  "clips": [...]
+}
+```
 
 *Clip data fields:*
 - `marker_x_std/marker_y_std`: Player position in 1920px-wide proxy
