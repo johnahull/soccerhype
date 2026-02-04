@@ -23,7 +23,7 @@ A Python + FFmpeg tool for quickly creating professional athlete highlight video
 - **🎯 Interactive Player Marking**: Mark athletes in video clips with precise positioning controls
 - **🔴 Red Spotlight Ring**: Automatically freezes on marked player for 1.25s with customizable ring size
 - **🎬 Professional Intro Slates**: Customizable intro with player pictures or video backgrounds
-- **🔧 Complete Workflow**: Mark clips → Reorder → Render → Export
+- **🔧 Complete Workflow**: Order clips → Mark plays → Render → Export
 - **⚡ Batch Processing**: Process multiple athletes in parallel with automated rendering
 - **🖥️ GUI & CLI**: Both graphical interface and command-line tools available
 

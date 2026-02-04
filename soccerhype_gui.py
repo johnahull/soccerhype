@@ -25,6 +25,10 @@ from version import __version__
 # Import profile management
 from profile_manager import PlayerProfileManager, sanitize_profile_id
 
+# Import clip sync utilities for marking status
+from clip_sync import is_clip_marked
+
+
 # Import enhanced error handling
 try:
     from utils.error_handling import (
@@ -98,13 +102,21 @@ class AthleteManager:
             has_project = project_file.exists()
             has_final = final_video.exists()
 
-            # Check if profile exists (project.json with player name)
+            # Check if profile exists and clips are marked
             has_profile = False
+            all_clips_marked = False
+            clips_count = 0
+            marked_count = 0
             if has_project:
                 try:
                     import json
                     project_data = json.loads(project_file.read_text())
                     has_profile = bool(project_data.get("player", {}).get("name", "").strip())
+                    # Check marking status of all clips
+                    clips = project_data.get("clips", [])
+                    clips_count = len(clips)
+                    marked_count = sum(1 for clip in clips if is_clip_marked(clip))
+                    all_clips_marked = clips_count > 0 and marked_count == clips_count
                 except (IOError, json.JSONDecodeError):
                     pass
 
@@ -113,8 +125,11 @@ class AthleteManager:
                 "has_project": has_project,
                 "has_profile": has_profile,
                 "has_final": has_final,
-                "needs_marking": has_clips and not has_project,
-                "needs_rendering": has_project and not has_final
+                "all_clips_marked": all_clips_marked,
+                "clips_count": clips_count,
+                "marked_count": marked_count,
+                "needs_marking": has_clips and (not has_project or not all_clips_marked),
+                "needs_rendering": has_project and all_clips_marked and not has_final
             }
         return _get_status()
 
@@ -129,13 +144,21 @@ class AthleteManager:
             has_project = project_file.exists()
             has_final = final_video.exists()
 
-            # Check if profile exists (project.json with player name)
+            # Check if profile exists and clips are marked
             has_profile = False
+            all_clips_marked = False
+            clips_count = 0
+            marked_count = 0
             if has_project:
                 try:
                     import json
                     project_data = json.loads(project_file.read_text())
                     has_profile = bool(project_data.get("player", {}).get("name", "").strip())
+                    # Check marking status of all clips
+                    clips = project_data.get("clips", [])
+                    clips_count = len(clips)
+                    marked_count = sum(1 for clip in clips if is_clip_marked(clip))
+                    all_clips_marked = clips_count > 0 and marked_count == clips_count
                 except (IOError, json.JSONDecodeError):
                     pass
 
@@ -144,8 +167,11 @@ class AthleteManager:
                 "has_project": has_project,
                 "has_profile": has_profile,
                 "has_final": has_final,
-                "needs_marking": has_clips and not has_project,
-                "needs_rendering": has_project and not has_final
+                "all_clips_marked": all_clips_marked,
+                "clips_count": clips_count,
+                "marked_count": marked_count,
+                "needs_marking": has_clips and (not has_project or not all_clips_marked),
+                "needs_rendering": has_project and all_clips_marked and not has_final
             }
         except Exception:
             return {
@@ -153,6 +179,9 @@ class AthleteManager:
                 "has_project": False,
                 "has_profile": False,
                 "has_final": False,
+                "all_clips_marked": False,
+                "clips_count": 0,
+                "marked_count": 0,
                 "needs_marking": False,
                 "needs_rendering": False
             }
@@ -362,9 +391,9 @@ class SoccerHypeGUI:
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
         tk.Button(action_frame, text="Set Profile", command=self.set_profile,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
-        tk.Button(action_frame, text="Mark Plays", command=self.mark_plays,
+        tk.Button(action_frame, text="Order Clips", command=self.reorder_clips,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
-        tk.Button(action_frame, text="Reorder Clips", command=self.reorder_clips,
+        tk.Button(action_frame, text="Mark Plays", command=self.mark_plays,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
         tk.Button(action_frame, text="Render Video", command=self.render_video,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
@@ -413,7 +442,13 @@ class SoccerHypeGUI:
             # Status indicators
             profile_status = "✓" if status["has_profile"] else "✗"
             clips_status = "✓" if status["has_clips"] else "✗"
-            marked_status = "✓" if status["has_project"] else "✗"
+            # Show marking progress: ✓ if all marked, partial count if some marked, ✗ if none
+            if status["all_clips_marked"]:
+                marked_status = "✓"
+            elif status["marked_count"] > 0:
+                marked_status = f"{status['marked_count']}/{status['clips_count']}"
+            else:
+                marked_status = "✗"
             rendered_status = "✓" if status["has_final"] else "✗"
 
             self.athlete_tree.insert("", 'end', values=(
@@ -537,88 +572,8 @@ class SoccerHypeGUI:
             return
 
         if dialog.result == "save_only":
-            # Profile was saved, refresh the list
+            # Profile was saved by the dialog, refresh the list
             self.refresh_athletes()
-            return
-
-        # If user clicked "Continue to Mark Plays", save profile and launch mark_plays
-        player_data = dialog.result
-
-        # Save profile to project.json first
-        import json
-        player_dict = {
-            "name": player_data.get("name", ""),
-            "title": player_data.get("title", ""),
-            "position": player_data.get("position", ""),
-            "grad_year": player_data.get("grad_year", ""),
-            "club_team": player_data.get("club_team", ""),
-            "high_school": player_data.get("high_school", ""),
-            "height_weight": player_data.get("height_weight", ""),
-            "gpa": player_data.get("gpa", ""),
-            "email": player_data.get("email", ""),
-            "phone": player_data.get("phone", ""),
-        }
-
-        # Handle intro media
-        selected_media_path = player_data.get("selected_media")
-        intro_media = None
-        if selected_media_path:
-            media_path = pathlib.Path(selected_media_path)
-            try:
-                # Try to make path relative to athlete directory
-                intro_media = str(media_path.relative_to(athlete_dir)) if media_path.exists() else None
-            except ValueError:
-                # Path is not relative to athlete_dir (file selected from elsewhere)
-                # Check if it's actually in the intro folder but path wasn't relative
-                intro_dir = athlete_dir / "intro"
-                if media_path.exists() and intro_dir in media_path.parents:
-                    # File is in intro folder, make it relative
-                    intro_media = str(media_path.relative_to(athlete_dir))
-                elif media_path.exists() and (intro_dir / media_path.name).exists():
-                    # File with same name exists in intro folder (likely was copied)
-                    intro_media = str(pathlib.Path("intro") / media_path.name)
-                else:
-                    # File is outside athlete_dir and not in intro - log warning
-                    print(f"Warning: Media file {media_path} is outside athlete directory")
-                    intro_media = None
-
-        # Preserve existing clips if project already exists
-        existing_clips = []
-        project_path = athlete_dir / "project.json"
-        if project_path.exists():
-            try:
-                existing_data = json.loads(project_path.read_text())
-                existing_clips = existing_data.get("clips", [])
-            except (IOError, json.JSONDecodeError):
-                pass
-
-        project_data = {
-            "player": player_dict,
-            "include_intro": player_data.get("include_intro", True),
-            "intro_media": intro_media,
-            "clips": existing_clips
-        }
-
-        try:
-            # Ensure the athlete directory exists
-            athlete_dir.mkdir(parents=True, exist_ok=True)
-
-            # Write atomically using temp file
-            import tempfile
-            temp_fd, temp_path = tempfile.mkstemp(dir=athlete_dir, prefix=".project_", suffix=".json.tmp")
-            try:
-                with os.fdopen(temp_fd, 'w') as f:
-                    json.dump(project_data, f, indent=2)
-                os.replace(temp_path, project_path)
-            except:
-                if os.path.exists(temp_path):
-                    os.unlink(temp_path)
-                raise
-
-            messagebox.showinfo("Success", f"Profile saved for {player_dict['name']}")
-            self.refresh_athletes()
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save profile: {e}")
 
     def mark_plays(self):
         """Launch mark_play.py for selected athlete"""
@@ -693,11 +648,11 @@ class SoccerHypeGUI:
 
         status = self.athlete_manager.get_athlete_status(athlete_dir)
         if not status["has_project"]:
-            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nMark plays first.")
+            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nSet Profile first.")
             return
 
         self.run_script_async("reorder_clips.py", ["--dir", str(athlete_dir)],
-                             "Reordering Clips", f"Launching clip reordering for {athlete_dir.name}")
+                             "Ordering Clips", f"Launching clip ordering for {athlete_dir.name}")
 
     def render_video(self):
         """Launch render_highlight.py for selected athlete"""
@@ -707,7 +662,16 @@ class SoccerHypeGUI:
 
         status = self.athlete_manager.get_athlete_status(athlete_dir)
         if not status["has_project"]:
-            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nMark plays first.")
+            messagebox.showwarning("No Project", f"No project file found for {athlete_dir.name}\n\nSet Profile first, then Order Clips and Mark Plays.")
+            return
+
+        if not status["all_clips_marked"]:
+            if status["clips_count"] == 0:
+                messagebox.showwarning("No Clips", f"No clips in project for {athlete_dir.name}\n\nUse Order Clips to sync clips from clips_in/ folder.")
+            else:
+                messagebox.showwarning("Clips Not Marked",
+                    f"{status['marked_count']}/{status['clips_count']} clips marked for {athlete_dir.name}\n\n"
+                    "Use Mark Plays to mark all clips before rendering.")
             return
 
         # Check if final video already exists
@@ -996,12 +960,8 @@ class PlayerInfoDialog:
         button_frame = tk.Frame(main_frame)
         button_frame.pack(fill='x', pady=(10, 0))
 
-        continue_btn = tk.Button(button_frame, text="Continue to Mark Plays", command=self.accept,
-                               bg="#4CAF50", fg="white", font=("Segoe UI", 11, "bold"))
-        continue_btn.pack(fill='x', pady=(0, 8))
-
-        save_btn = tk.Button(button_frame, text="Save Info Only", command=self.save_only,
-                           bg="#FF9800", fg="white", font=("Segoe UI", 10))
+        save_btn = tk.Button(button_frame, text="Save Profile", command=self.save_only,
+                           bg="#4CAF50", fg="white", font=("Segoe UI", 11, "bold"))
         save_btn.pack(fill='x', pady=(0, 8))
 
         cancel_btn = tk.Button(button_frame, text="Cancel", command=self.cancel,
@@ -1175,30 +1135,6 @@ class PlayerInfoDialog:
         """Clear the current media selection"""
         self.selected_media_var.set("")
         self.current_media_label.config(text="No media selected")
-
-    def accept(self):
-        """Accept the form and return the data"""
-        # Validate required fields
-        if not self.name_var.get().strip():
-            messagebox.showerror("Validation Error", "Player name is required.")
-            return
-
-        self.result = {
-            "name": self.name_var.get().strip(),
-            "title": self.title_var.get().strip(),
-            "position": self.position_var.get().strip(),
-            "grad_year": self.grad_year_var.get().strip(),
-            "club_team": self.club_team_var.get().strip(),
-            "high_school": self.high_school_var.get().strip(),
-            "height_weight": self.height_weight_var.get().strip(),
-            "gpa": self.gpa_var.get().strip(),
-            "email": self.email_var.get().strip(),
-            "phone": self.phone_var.get().strip(),
-            "include_intro": self.include_intro_var.get(),
-            "overwrite": self.overwrite_var.get(),
-            "selected_media": self.selected_media_var.get() if self.selected_media_var.get() else None
-        }
-        self.dialog.destroy()
 
     def save_only(self):
         """Save player information only without proceeding to mark plays"""
@@ -1471,7 +1407,14 @@ class BatchOperationsDialog:
 
         for athlete_dir in self.athletes:
             status = athlete_manager.get_athlete_status(athlete_dir)
-            status_text = "✓ Complete" if status["has_final"] else ("⚡ Ready" if status["has_project"] else "⚠ Needs work")
+            if status["has_final"]:
+                status_text = "✓ Complete"
+            elif status["all_clips_marked"]:
+                status_text = "⚡ Ready"
+            elif status["marked_count"] > 0:
+                status_text = f"⚠ {status['marked_count']}/{status['clips_count']} marked"
+            else:
+                status_text = "⚠ Needs work"
             self.athlete_listbox.insert(tk.END, f"{athlete_dir.name} - {status_text}")
 
     def select_all(self):
@@ -1488,7 +1431,7 @@ class BatchOperationsDialog:
         athlete_manager = AthleteManager()
         for i, athlete_dir in enumerate(self.athletes):
             status = athlete_manager.get_athlete_status(athlete_dir)
-            if status["has_project"]:
+            if status["all_clips_marked"]:
                 self.athlete_listbox.selection_set(i)
 
     def render_selected(self):

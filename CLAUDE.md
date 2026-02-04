@@ -64,19 +64,22 @@ python reorder_clips_enhanced.py
 python create_athlete.py "Athlete Name"
 ```
 
-**2. Mark plays interactively:**
+**2. Order clips with GUI (syncs clips_in/ folder):**
+```bash
+python reorder_clips.py
+# Or target specific athlete:
+python reorder_clips.py --athlete "Athlete Name"
+# Note: Auto-syncs clips_in/ folder on launch
+# Uses system video player for preview (xdg-open/open/os.startfile)
+```
+
+**3. Mark plays interactively:**
 ```bash
 python mark_play.py
 # Or target specific athlete:
 python mark_play.py --athlete "Athlete Name"
 python mark_play.py --dir athletes/athlete_name
-```
-
-**3. Reorder clips with GUI (optional):**
-```bash
-python reorder_clips.py
-# Note: Uses system video player for preview (xdg-open/open/os.startfile)
-# Provides better security and codec support than embedded player
+# Note: Only marks unmarked clips by default (use --all to re-mark)
 ```
 
 **4. Render final highlight video:**
