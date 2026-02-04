@@ -25,6 +25,7 @@ from version import __version__
 # Import profile management
 from profile_manager import PlayerProfileManager, sanitize_profile_id
 
+
 # Import enhanced error handling
 try:
     from utils.error_handling import (
@@ -362,9 +363,9 @@ class SoccerHypeGUI:
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
         tk.Button(action_frame, text="Set Profile", command=self.set_profile,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
-        tk.Button(action_frame, text="Mark Plays", command=self.mark_plays,
-                 font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
         tk.Button(action_frame, text="Reorder Clips", command=self.reorder_clips,
+                 font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
+        tk.Button(action_frame, text="Mark Plays", command=self.mark_plays,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))
         tk.Button(action_frame, text="Render Video", command=self.render_video,
                  font=("Segoe UI", 9)).pack(side='left', padx=(0, 5))

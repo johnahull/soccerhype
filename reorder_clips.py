@@ -28,6 +28,9 @@ from typing import List, Tuple, Optional
 # Import shared constants
 from constants import SECTIONS, SECTION_COLORS, OVERLAY_DEFAULT_COLOR
 
+# Import clip sync utilities
+from clip_sync import sync_clips, is_clip_marked, get_sync_summary_message
+
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
@@ -215,8 +218,9 @@ class ReorderGUI(tk.Tk):
         tk.Button(btns, text="Preview", command=self.preview_selected).grid(row=0, column=3, padx=2)
         remove_btn = tk.Button(btns, text="Remove", command=self.remove_selected, fg="red")
         remove_btn.grid(row=0, column=4, padx=2)
-        tk.Button(btns, text="Save Order", command=self.save_order).grid(row=0, column=5, padx=12)
-        tk.Button(btns, text="Close", command=self.on_closing).grid(row=0, column=6, padx=2)
+        tk.Button(btns, text="Sync Clips", command=self.sync_clips_action).grid(row=0, column=5, padx=2)
+        tk.Button(btns, text="Save Order", command=self.save_order).grid(row=0, column=6, padx=12)
+        tk.Button(btns, text="Close", command=self.on_closing).grid(row=0, column=7, padx=2)
 
         # Section assignment
         section_frame = tk.Frame(left)
@@ -246,17 +250,108 @@ class ReorderGUI(tk.Tk):
         # Handle window close to warn about unsaved changes
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+        # Auto-sync on startup (after window is shown)
+        self.after(100, self.auto_sync_on_startup)
+
+    def auto_sync_on_startup(self):
+        """Automatically sync clips when the window opens."""
+        try:
+            result = sync_clips(self.base, save=True)
+
+            # Reload project if changes were made
+            if result["added"] or result["removed"]:
+                self.project = load_project(self.base)
+                self.clips = list(self.project.get("clips", []))
+                self.refresh_listbox()
+
+                # Show notification toast
+                message = get_sync_summary_message(result)
+                self.show_toast(message)
+        except (FileNotFoundError, ValueError) as e:
+            # Silently ignore sync errors on startup - project may not be fully set up
+            pass
+
+    def show_toast(self, message: str, duration: int = 3000):
+        """Show a temporary toast notification at the top of the window."""
+        toast = tk.Toplevel(self)
+        toast.overrideredirect(True)
+        toast.attributes("-topmost", True)
+
+        # Style the toast
+        frame = tk.Frame(toast, bg="#333333", padx=12, pady=8)
+        frame.pack()
+        label = tk.Label(frame, text=message, fg="white", bg="#333333",
+                        font=("Segoe UI", 10))
+        label.pack()
+
+        # Position toast at top center of main window
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 150
+        y = self.winfo_y() + 50
+        toast.geometry(f"+{x}+{y}")
+
+        # Auto-dismiss after duration
+        def dismiss():
+            try:
+                toast.destroy()
+            except tk.TclError:
+                pass
+
+        toast.after(duration, dismiss)
+
+    def sync_clips_action(self):
+        """Handle Sync Clips button click."""
+        try:
+            result = sync_clips(self.base, save=True)
+
+            # Reload project data
+            self.project = load_project(self.base)
+            self.clips = list(self.project.get("clips", []))
+            self.refresh_listbox()
+            self.is_modified = False
+            self.update_title()
+
+            # Build detailed message
+            message = get_sync_summary_message(result)
+            details = []
+
+            if result["added"]:
+                details.append("Added:\n  " + "\n  ".join(result["added"]))
+            if result["removed"]:
+                details.append("Removed:\n  " + "\n  ".join(result["removed"]))
+
+            if details:
+                full_message = message + "\n\n" + "\n\n".join(details)
+            else:
+                full_message = message
+
+            messagebox.showinfo("Sync Complete", full_message)
+
+        except FileNotFoundError as e:
+            messagebox.showerror("Sync Error", f"Could not sync clips:\n{e}")
+        except ValueError as e:
+            messagebox.showerror("Sync Error", f"Could not sync clips:\n{e}")
+
     def current_selection(self) -> Optional[int]:
         sel = self.listbox.curselection()
         return sel[0] if sel else None
 
     def get_clip_display_name(self, clip: dict) -> str:
-        """Get display name for clip with section badge."""
+        """Get display name for clip with marking status and section badge.
+
+        Format: [status] [section] filename
+        - Status: ✓ = marked (has complete marking data), ○ = unmarked
+        - Section: Optional category badge like [Goals], [Assists]
+        """
         name = pathlib.Path(clip.get("file","") or clip.get("std_file","")).name or "(unnamed)"
         section = clip.get("section")
+
+        # Marking status indicator
+        status = "✓" if is_clip_marked(clip) else "○"
+
         if section:
-            return f"[{section}] {name}"
-        return name
+            return f"{status} [{section}] {name}"
+        return f"{status} {name}"
 
     def refresh_listbox(self):
         """Refresh listbox display with section badges and colors."""

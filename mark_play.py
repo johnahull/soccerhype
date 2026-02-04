@@ -60,6 +60,9 @@ except ImportError:
     # Fallback to system binary if ffmpeg_utils not available
     FFMPEG_CMD = "ffmpeg"
 
+# Import clip sync utilities for marking status detection
+from clip_sync import is_clip_marked, get_clip_filename
+
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
@@ -431,6 +434,10 @@ def main():
     ap.add_argument("--include-intro", action="store_true", help="Include intro screen")
     ap.add_argument("--intro-media", type=str, help="Path to intro media file (relative to athlete directory)")
     ap.add_argument("--overwrite", action="store_true", help="Overwrite existing project without asking")
+    ap.add_argument("--new-only", action="store_true", default=True,
+                    help="Only mark unmarked clips (default when project.json exists)")
+    ap.add_argument("--all", action="store_true",
+                    help="Re-mark all clips, ignoring existing marks")
 
     args = ap.parse_args()
 
@@ -466,15 +473,35 @@ def main():
         args.include_intro, args.overwrite
     ])
 
-    # If project exists, ask before overwriting (unless in GUI mode with overwrite flag)
+    # Determine marking mode: new-only (default) or all
+    # --all overrides --new-only
+    mark_all = args.all
+    existing_project = None
+
+    # If project exists, handle accordingly
     if project_path.exists():
-        if gui_mode and args.overwrite:
-            print(f"Overwriting existing project: {project_path}")
+        existing_project = json.loads(project_path.read_text())
+
+        if mark_all:
+            # --all flag: confirm overwrite
+            if gui_mode and args.overwrite:
+                print(f"Re-marking all clips (overwriting existing marks): {project_path}")
+            else:
+                ans = input(f"{project_path} exists. Re-mark ALL clips? [y/N]: ").strip().lower()
+                if ans != "y":
+                    print("Aborted.")
+                    sys.exit(0)
         else:
-            ans = input(f"{project_path} exists. Overwrite? [y/N]: ").strip().lower()
-            if ans != "y":
-                print("Aborted.")
-                sys.exit(0)
+            # Default: new-only mode - preserve existing marks
+            print(f"Existing project found. Will mark only new/unmarked clips.")
+            print(f"Use --all to re-mark all clips.")
+
+    elif gui_mode and args.overwrite:
+        # No existing project, GUI mode - proceed normally
+        pass
+    elif not gui_mode:
+        # No existing project, interactive mode - proceed normally
+        pass
 
     # Handle intro and player info
     if gui_mode:
@@ -521,15 +548,69 @@ def main():
         else:
             print("No intro media files found - using text-only slate")
 
-    project = {"player": player, "include_intro": include_intro, "intro_media": intro_media_path, "clips": []}
+    # Initialize or update project structure
+    if existing_project and not mark_all:
+        # New-only mode: preserve existing project structure
+        project = existing_project.copy()
+        # Update player info only if provided in GUI mode
+        if gui_mode and include_intro:
+            project["player"] = player
+            project["include_intro"] = include_intro
+            if intro_media_path:
+                project["intro_media"] = intro_media_path
+    else:
+        # Fresh project or --all mode
+        project = {"player": player, "include_intro": include_intro, "intro_media": intro_media_path, "clips": []}
 
-    for idx, src in enumerate(clips, 1):
-        proxy = paths["prox"] / f"clip{idx:02d}_std.mp4"
-        try:
-            build_proxy(src, proxy)
-        except Exception as e:
-            print(f"Proxy build failed for {src.name}: {e}")
-            continue
+    # Build map of existing clips by filename for new-only mode
+    existing_clips_by_name: Dict[str, Dict[str, Any]] = {}
+    if existing_project and not mark_all:
+        for clip in existing_project.get("clips", []):
+            filename = get_clip_filename(clip)
+            if filename:
+                existing_clips_by_name[filename] = clip
+
+    # Determine which clips need marking
+    clips_to_mark: List[pathlib.Path] = []
+    clips_preserved: List[Dict[str, Any]] = []
+
+    for src in clips:
+        existing_clip = existing_clips_by_name.get(src.name)
+
+        if existing_clip and is_clip_marked(existing_clip) and not mark_all:
+            # Already marked - preserve it
+            clips_preserved.append(existing_clip)
+            print(f"✓ Already marked: {src.name}")
+        else:
+            # Needs marking (new or unmarked)
+            clips_to_mark.append(src)
+
+    if not clips_to_mark:
+        print("\nAll clips are already marked. Nothing to do.")
+        print(f"Use --all to re-mark all clips.")
+        sys.exit(0)
+
+    print(f"\n{len(clips_to_mark)} clip(s) to mark, {len(clips_preserved)} already marked.")
+
+    # Start with preserved clips (maintain their order)
+    if not mark_all:
+        project["clips"] = clips_preserved.copy()
+
+    # Mark the clips that need it
+    for idx, src in enumerate(clips_to_mark, 1):
+        # Generate unique proxy filename based on source name
+        proxy_name = f"proxy_{src.stem}_std.mp4"
+        proxy = paths["prox"] / proxy_name
+
+        # Check if proxy already exists and is valid
+        if proxy.exists():
+            print(f"Reusing existing proxy: {proxy.name}")
+        else:
+            try:
+                build_proxy(src, proxy)
+            except Exception as e:
+                print(f"Proxy build failed for {src.name}: {e}")
+                continue
 
         data = mark_on_proxy(src, proxy, idx)
         if data is not None:
@@ -539,7 +620,9 @@ def main():
             print(f"Skipped: {src.name}")
 
     project_path.write_text(json.dumps(project, indent=2))
-    print(f"\nSaved {project_path}. Next: python render_highlight.py --dir \"{base}\"")
+    marked_count = len(project["clips"]) - len(clips_preserved) if not mark_all else len(project["clips"])
+    print(f"\nSaved {project_path}. Marked {marked_count} new clip(s).")
+    print(f"Next: python render_highlight.py --dir \"{base}\"")
 
 if __name__ == "__main__":
     main()
