@@ -568,39 +568,43 @@ def main():
         # Fresh project or --all mode
         project = {"player": player, "include_intro": include_intro, "intro_media": intro_media_path, "clips": []}
 
-    # Build map of existing clips by filename for new-only mode
-    existing_clips_by_name: Dict[str, Dict[str, Any]] = {}
-    if existing_project and not mark_all:
-        for clip in existing_project.get("clips", []):
-            filename = get_clip_filename(clip)
-            if filename:
-                existing_clips_by_name[filename] = clip
+    # Build map of clips_in files for lookup
+    clips_in_files = {src.name: src for src in clips}
 
-    # Determine which clips need marking
+    # Determine which clips need marking, preserving project.json order
     clips_to_mark: List[pathlib.Path] = []
-    clips_preserved: List[Dict[str, Any]] = []
+    marked_count = 0
 
-    for src in clips:
-        existing_clip = existing_clips_by_name.get(src.name)
+    if existing_project and not mark_all:
+        # Preserve order from project.json
+        existing_clips = existing_project.get("clips", [])
+        for clip in existing_clips:
+            filename = get_clip_filename(clip)
+            if is_clip_marked(clip):
+                print(f"✓ Already marked: {filename}")
+                marked_count += 1
+            elif filename in clips_in_files:
+                # Unmarked clip that exists in clips_in - needs marking
+                clips_to_mark.append(clips_in_files[filename])
 
-        if existing_clip and is_clip_marked(existing_clip) and not mark_all:
-            # Already marked - preserve it
-            clips_preserved.append(existing_clip)
-            print(f"✓ Already marked: {src.name}")
-        else:
-            # Needs marking (new or unmarked)
-            clips_to_mark.append(src)
+        # Also check for new clips in clips_in/ not in project.json
+        existing_filenames = {get_clip_filename(c) for c in existing_clips}
+        for src in clips:
+            if src.name not in existing_filenames:
+                clips_to_mark.append(src)
+    else:
+        # Fresh project or --all mode - mark all clips
+        clips_to_mark = list(clips)
 
     if not clips_to_mark:
         print("\nAll clips are already marked. Nothing to do.")
         print(f"Use --all to re-mark all clips.")
         sys.exit(0)
 
-    print(f"\n{len(clips_to_mark)} clip(s) to mark, {len(clips_preserved)} already marked.")
+    print(f"\n{len(clips_to_mark)} clip(s) to mark, {marked_count} already marked.")
 
-    # Start with preserved clips (maintain their order)
-    if not mark_all:
-        project["clips"] = clips_preserved.copy()
+    # Build a map for updating clips in place
+    newly_marked: Dict[str, Dict[str, Any]] = {}
 
     # Mark the clips that need it
     for idx, src in enumerate(clips_to_mark, 1):
@@ -620,14 +624,40 @@ def main():
 
         data = mark_on_proxy(src, proxy, idx)
         if data is not None:
-            project["clips"].append(data)
-            autosave(project_path, project)
+            newly_marked[src.name] = data
         else:
             print(f"Skipped: {src.name}")
 
+    # Update project clips, preserving order from project.json
+    if existing_project and not mark_all:
+        # Update existing clips in place with new marking data
+        updated_clips = []
+        for clip in project.get("clips", []):
+            filename = get_clip_filename(clip)
+            if filename in newly_marked:
+                # Replace with newly marked data, preserve section if set
+                new_clip = newly_marked[filename]
+                if clip.get("section"):
+                    new_clip["section"] = clip["section"]
+                updated_clips.append(new_clip)
+            else:
+                # Keep existing clip data
+                updated_clips.append(clip)
+
+        # Append any new clips that weren't in project.json
+        existing_filenames = {get_clip_filename(c) for c in project.get("clips", [])}
+        for filename, data in newly_marked.items():
+            if filename not in existing_filenames:
+                updated_clips.append(data)
+
+        project["clips"] = updated_clips
+    else:
+        # Fresh project - just use newly marked clips
+        project["clips"] = list(newly_marked.values())
+
     project_path.write_text(json.dumps(project, indent=2))
-    marked_count = len(project["clips"]) - len(clips_preserved) if not mark_all else len(project["clips"])
-    print(f"\nSaved {project_path}. Marked {marked_count} new clip(s).")
+    newly_marked_count = len(newly_marked)
+    print(f"\nSaved {project_path}. Marked {newly_marked_count} new clip(s).")
     print(f"Next: python render_highlight.py --dir \"{base}\"")
 
 if __name__ == "__main__":
