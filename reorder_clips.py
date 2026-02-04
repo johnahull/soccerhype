@@ -585,36 +585,68 @@ class ReorderGUI(tk.Tk):
         self.update_title()
 
     def remove_selected(self):
-        """Remove selected clip from the list with confirmation"""
+        """Remove selected clip from the list with option to delete file"""
         i = self.current_selection()
         if i is None:
             messagebox.showwarning("No Selection", "Please select a clip to remove.")
             return
 
         # Validate bounds to prevent IndexError
-        if i >= len(self.clips):
+        if i < 0 or i >= len(self.clips):
             messagebox.showerror("Selection Error", "Selected item is out of range.")
             return
 
+        clip = self.clips[i]
         clip_name = self.listbox.get(i)
 
-        # Confirm deletion
-        result = messagebox.askyesno(
-            "Confirm Removal",
-            f"Remove clip from list?\n\n{clip_name}\n\n"
-            "This will remove it from the project (when you click 'Save Order').\n"
-            "The original video file will not be deleted.",
-            icon='warning'
-        )
+        # Get the source file path
+        file_path = clip.get("file")
+        source_file = pathlib.Path(file_path) if file_path else None
+        file_exists = source_file and source_file.exists()
 
-        if not result:
-            return
+        # Ask what to do
+        if file_exists:
+            result = messagebox.askyesnocancel(
+                "Remove Clip",
+                f"Remove clip from project?\n\n{clip_name}\n\n"
+                "Yes = Remove from project AND delete file\n"
+                "No = Remove from project only (keep file)\n"
+                "Cancel = Don't remove",
+                icon='question'
+            )
+
+            if result is None:  # Cancel
+                return
+
+            delete_file = result  # True = Yes (delete), False = No (keep)
+        else:
+            # File doesn't exist or no path - just confirm removal
+            if not messagebox.askyesno(
+                "Remove Clip",
+                f"Remove clip from project?\n\n{clip_name}",
+                icon='warning'
+            ):
+                return
+            delete_file = False
 
         # Remove from data and UI
         del self.clips[i]
         self.listbox.delete(i)
         self.is_modified = True
         self.update_title()
+
+        # Delete file if requested
+        if delete_file and source_file:
+            try:
+                source_file.unlink()
+                # Also delete proxy if it exists
+                proxy_path = clip.get("std_file")
+                if proxy_path:
+                    proxy = pathlib.Path(proxy_path)
+                    if proxy.exists():
+                        proxy.unlink()
+            except OSError as e:
+                messagebox.showwarning("Warning", f"Could not delete file: {e}")
 
         # Update selection to next item (or previous if last item was removed)
         if len(self.clips) > 0:
