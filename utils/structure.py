@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shutil
 import tempfile
 from typing import Dict, Any, List, Optional, Literal
 
@@ -356,6 +357,18 @@ def create_v2_structure(athlete_dir: pathlib.Path, profile: Optional[Dict[str, A
     _atomic_write_json(athlete_dir / "athlete.json", profile)
 
 
+def _validate_project_name(name: str, label: str = "Project") -> None:
+    """Validate project name doesn't contain path traversal characters."""
+    if not name or not name.strip():
+        raise ValueError(f"{label} name cannot be empty")
+    if "/" in name or "\\" in name:
+        raise ValueError(f"{label} name cannot contain path separators: {name}")
+    if name.startswith("."):
+        raise ValueError(f"{label} name cannot start with a dot: {name}")
+    if name in (".", ".."):
+        raise ValueError(f"Invalid {label.lower()} name: {name}")
+
+
 def create_project(athlete_dir: pathlib.Path, project_name: str) -> pathlib.Path:
     """
     Create a new project under an athlete (v2 structure).
@@ -368,10 +381,13 @@ def create_project(athlete_dir: pathlib.Path, project_name: str) -> pathlib.Path
         Path to the created project directory
 
     Raises:
-        ValueError: If athlete doesn't use v2 structure
+        ValueError: If athlete doesn't use v2 structure or project name is invalid
         FileExistsError: If project already exists
     """
     athlete_dir = athlete_dir.resolve()
+
+    # Validate project name (path traversal protection)
+    _validate_project_name(project_name, "Project")
 
     # Ensure v2 structure exists
     if not is_v2_structure(athlete_dir):
@@ -379,7 +395,12 @@ def create_project(athlete_dir: pathlib.Path, project_name: str) -> pathlib.Path
             raise ValueError(f"Athlete '{athlete_dir.name}' uses v1 structure. "
                            "Migrate to v2 first or use create_v2_structure().")
 
-    project_dir = athlete_dir / "projects" / project_name
+    projects_dir = athlete_dir / "projects"
+    project_dir = (projects_dir / project_name).resolve()
+
+    # Additional path traversal check
+    if not str(project_dir).startswith(str(projects_dir.resolve())):
+        raise ValueError(f"Project path escapes projects directory: {project_name}")
 
     if project_dir.exists():
         raise FileExistsError(f"Project '{project_name}' already exists for athlete '{athlete_dir.name}'")
@@ -400,6 +421,117 @@ def create_project(athlete_dir: pathlib.Path, project_name: str) -> pathlib.Path
     _atomic_write_json(project_dir / "project.json", project_data)
 
     return project_dir
+
+
+def clone_project(
+    athlete_dir: pathlib.Path,
+    source_project: str,
+    target_project: str,
+    include_proxies: bool = True
+) -> pathlib.Path:
+    """
+    Clone an existing project with all its data.
+
+    This copies the source project's clips, marking data, and optionally proxies
+    to a new project. Useful for creating variations of a highlight video without
+    starting from scratch.
+
+    Args:
+        athlete_dir: Path to athlete root directory
+        source_project: Name of the project to clone from
+        target_project: Name for the new project
+        include_proxies: Whether to copy work/proxies/ (saves re-processing time)
+
+    Returns:
+        Path to the created project directory
+
+    Raises:
+        ValueError: If athlete doesn't use v2 structure, source doesn't exist,
+                   or project names contain invalid characters
+        FileExistsError: If target project already exists
+    """
+    athlete_dir = athlete_dir.resolve()
+
+    # Validate project names (path traversal protection)
+    _validate_project_name(source_project, "Source project")
+    _validate_project_name(target_project, "Target project")
+
+    # Validate v2 structure
+    if not is_v2_structure(athlete_dir):
+        raise ValueError(f"Athlete '{athlete_dir.name}' uses v1 structure. "
+                        "Clone requires v2 multi-project structure.")
+
+    projects_dir = athlete_dir / "projects"
+    source_dir = (projects_dir / source_project).resolve()
+    target_dir = (projects_dir / target_project).resolve()
+
+    # Additional path traversal check: ensure paths are within projects directory
+    projects_dir_resolved = projects_dir.resolve()
+    if not str(source_dir).startswith(str(projects_dir_resolved)):
+        raise ValueError(f"Source project path escapes projects directory: {source_project}")
+    if not str(target_dir).startswith(str(projects_dir_resolved)):
+        raise ValueError(f"Target project path escapes projects directory: {target_project}")
+
+    # Validate source exists
+    if not source_dir.exists():
+        raise ValueError(f"Source project '{source_project}' does not exist for athlete '{athlete_dir.name}'")
+
+    # Validate target doesn't exist
+    if target_dir.exists():
+        raise FileExistsError(f"Project '{target_project}' already exists for athlete '{athlete_dir.name}'")
+
+    # Use temporary directory for atomic operation (rollback on failure)
+    temp_dir = projects_dir / f".{target_project}.tmp"
+    try:
+        # Clean up any leftover temp directory from previous failed attempt
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+
+        # Copy clips_in/ directory
+        source_clips = source_dir / "clips_in"
+        if source_clips.exists():
+            shutil.copytree(source_clips, temp_dir / "clips_in")
+        else:
+            (temp_dir / "clips_in").mkdir(parents=True, exist_ok=True)
+
+        # Copy work/proxies/ if requested and exists
+        source_proxies = source_dir / "work" / "proxies"
+        if include_proxies and source_proxies.exists():
+            shutil.copytree(source_proxies, temp_dir / "work" / "proxies")
+        else:
+            (temp_dir / "work" / "proxies").mkdir(parents=True, exist_ok=True)
+
+        # Create empty output directory (user will re-render)
+        (temp_dir / "output").mkdir(parents=True, exist_ok=True)
+
+        # Copy and update project.json
+        source_json_path = source_dir / "project.json"
+        if source_json_path.exists():
+            source_data = json.loads(source_json_path.read_text())
+            source_data["project_name"] = target_project
+            # Keep all clip marking data, intro settings, etc.
+            _atomic_write_json(temp_dir / "project.json", source_data)
+        else:
+            # Create default project.json if source didn't have one
+            project_data = {
+                "schema_version": SCHEMA_VERSION,
+                "project_name": target_project,
+                "include_intro": True,
+                "intro_media": None,
+                "clips": []
+            }
+            _atomic_write_json(temp_dir / "project.json", project_data)
+
+        # Atomic rename to final location
+        temp_dir.rename(target_dir)
+
+    except Exception:
+        # Cleanup on failure
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        raise
+
+    return target_dir
 
 
 def _atomic_write_json(path: pathlib.Path, data: Dict[str, Any]) -> None:

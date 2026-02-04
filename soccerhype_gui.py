@@ -38,6 +38,7 @@ from utils.structure import (
     get_project_data,
     list_projects,
     create_project,
+    clone_project,
     create_v2_structure,
     SCHEMA_VERSION,
 )
@@ -432,10 +433,14 @@ class ProjectSelectionDialog:
         self.dialog.geometry("450x400")
         self.dialog.resizable(False, False)
         self.dialog.transient(parent)
-        self.dialog.grab_set()
 
         # Center on parent
         self.dialog.geometry(f"+{parent.winfo_rootx() + 150}+{parent.winfo_rooty() + 100}")
+
+        # Ensure window is visible before grabbing focus (fixes TclError)
+        self.dialog.update_idletasks()
+        self.dialog.wait_visibility()
+        self.dialog.grab_set()
 
         self.setup_ui(allow_create)
         self.refresh_projects()
@@ -507,22 +512,67 @@ class ProjectSelectionDialog:
         self.dialog.destroy()
 
     def create_project(self):
-        """Create a new project."""
-        # Show input dialog
+        """Create a new project (from scratch or by cloning)."""
+        # Check if there are existing projects to clone from
+        existing_projects = self.athlete_manager.discover_projects(self.athlete_dir)
+        has_cloneable = len(existing_projects) > 0
+
+        # Show creation method dialog if cloning is possible
         create_dialog = tk.Toplevel(self.dialog)
         create_dialog.title("New Project")
-        create_dialog.geometry("350x120")
         create_dialog.resizable(False, False)
         create_dialog.transient(self.dialog)
         create_dialog.grab_set()
-
         create_dialog.geometry(f"+{self.dialog.winfo_rootx() + 50}+{self.dialog.winfo_rooty() + 100}")
 
-        tk.Label(create_dialog, text="Project name:", font=("Segoe UI", 10)).pack(pady=10)
+        # Track selected clone source
+        clone_source_var = tk.StringVar(value="")
+
+        if has_cloneable:
+            create_dialog.geometry("400x280")
+
+            # Creation method selection
+            method_frame = tk.LabelFrame(create_dialog, text="Creation Method", font=("Segoe UI", 9))
+            method_frame.pack(fill='x', padx=10, pady=10)
+
+            method_var = tk.StringVar(value="scratch")
+
+            tk.Radiobutton(method_frame, text="Start from scratch (empty project)",
+                          variable=method_var, value="scratch",
+                          font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+            tk.Radiobutton(method_frame, text="Clone existing project (copy clips and marks)",
+                          variable=method_var, value="clone",
+                          font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+
+            # Clone source selection (only enabled when clone is selected)
+            clone_frame = tk.LabelFrame(create_dialog, text="Clone From", font=("Segoe UI", 9))
+            clone_frame.pack(fill='x', padx=10, pady=5)
+
+            clone_combo = ttk.Combobox(clone_frame, textvariable=clone_source_var,
+                                       values=[p.name for p in existing_projects],
+                                       state='disabled', font=("Segoe UI", 9))
+            clone_combo.pack(fill='x', padx=5, pady=5)
+            if existing_projects:
+                clone_combo.set(existing_projects[0].name)
+
+            def on_method_change(*args):
+                if method_var.get() == "clone":
+                    clone_combo.config(state='readonly')
+                else:
+                    clone_combo.config(state='disabled')
+
+            method_var.trace_add('write', on_method_change)
+        else:
+            create_dialog.geometry("350x140")
+            method_var = tk.StringVar(value="scratch")
+
+        # Project name entry
+        name_frame = tk.LabelFrame(create_dialog, text="Project Name", font=("Segoe UI", 9))
+        name_frame.pack(fill='x', padx=10, pady=5)
 
         name_var = tk.StringVar()
-        entry = tk.Entry(create_dialog, textvariable=name_var, font=("Segoe UI", 10), width=30)
-        entry.pack(pady=5)
+        entry = tk.Entry(name_frame, textvariable=name_var, font=("Segoe UI", 10), width=35)
+        entry.pack(padx=5, pady=5)
         entry.focus()
 
         def do_create():
@@ -532,12 +582,27 @@ class ProjectSelectionDialog:
                 return
 
             try:
-                project_dir = self.athlete_manager.create_project_for_athlete(self.athlete_dir, name)
+                if method_var.get() == "clone":
+                    # Validate clone source is selected
+                    if not clone_source_var.get():
+                        messagebox.showerror("Error", "Please select a project to clone from.")
+                        return
+                    # Clone from existing project
+                    project_dir = clone_project(
+                        self.athlete_dir,
+                        clone_source_var.get(),
+                        name
+                    )
+                else:
+                    # Create from scratch
+                    project_dir = self.athlete_manager.create_project_for_athlete(self.athlete_dir, name)
                 create_dialog.destroy()
                 self.result = project_dir
                 self.dialog.destroy()
             except FileExistsError:
                 messagebox.showerror("Error", f"Project '{name}' already exists.")
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to create project: {e}")
 
@@ -616,35 +681,37 @@ class SoccerHypeGUI:
 
         tk.Button(button_frame, text="New Athlete", command=self.new_athlete,
                  bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold")).pack(side='left', padx=(0, 10))
+        tk.Button(button_frame, text="New Project", command=self.new_project,
+                 font=("Segoe UI", 10)).pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Refresh", command=self.refresh_athletes,
                  font=("Segoe UI", 10)).pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Batch Operations", command=self.batch_operations,
                  font=("Segoe UI", 10)).pack(side='right')
 
-        # Athletes list
+        # Projects list (flat view showing all projects across all athletes)
         list_frame = tk.Frame(main_frame)
         list_frame.pack(fill='both', expand=True)
 
-        tk.Label(list_frame, text="Athletes", font=("Segoe UI", 12, "bold")).pack(anchor='w')
+        tk.Label(list_frame, text="Projects", font=("Segoe UI", 12, "bold")).pack(anchor='w')
 
-        # Treeview for athletes with status
-        columns = ("Name", "Status", "Profile", "Clips", "Marked", "Rendered")
+        # Treeview for projects with status (one row per project)
+        columns = ("Athlete", "Project", "Status", "Clips", "Marked", "Rendered")
         self.athlete_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=15)
 
         # Configure columns
-        self.athlete_tree.heading("Name", text="Athlete Name")
-        self.athlete_tree.heading("Status", text="Workflow Status")
-        self.athlete_tree.heading("Profile", text="Has Profile")
-        self.athlete_tree.heading("Clips", text="Has Clips")
-        self.athlete_tree.heading("Marked", text="Clips Marked")
-        self.athlete_tree.heading("Rendered", text="Final Video")
+        self.athlete_tree.heading("Athlete", text="Athlete")
+        self.athlete_tree.heading("Project", text="Project")
+        self.athlete_tree.heading("Status", text="Status")
+        self.athlete_tree.heading("Clips", text="Clips")
+        self.athlete_tree.heading("Marked", text="Marked")
+        self.athlete_tree.heading("Rendered", text="Rendered")
 
-        self.athlete_tree.column("Name", width=200)
-        self.athlete_tree.column("Status", width=150)
-        self.athlete_tree.column("Profile", width=80)
-        self.athlete_tree.column("Clips", width=80)
-        self.athlete_tree.column("Marked", width=80)
-        self.athlete_tree.column("Rendered", width=80)
+        self.athlete_tree.column("Athlete", width=150)
+        self.athlete_tree.column("Project", width=120)
+        self.athlete_tree.column("Status", width=130)
+        self.athlete_tree.column("Clips", width=60, anchor='center')
+        self.athlete_tree.column("Marked", width=80, anchor='center')
+        self.athlete_tree.column("Rendered", width=70, anchor='center')
 
         # Scrollbar for treeview
         scrollbar = ttk.Scrollbar(list_frame, orient='vertical', command=self.athlete_tree.yview)
@@ -684,7 +751,7 @@ class SoccerHypeGUI:
                 print(f"Error refreshing athletes: {e}")
 
     def _refresh_athletes_impl(self):
-        """Implementation of refresh athletes"""
+        """Implementation of refresh - shows flat list of all projects"""
         # Clear existing items
         for item in self.athlete_tree.get_children():
             self.athlete_tree.delete(item)
@@ -692,101 +759,138 @@ class SoccerHypeGUI:
         athletes = self.athlete_manager.discover_athletes()
         if not athletes:
             # Show helpful message when no athletes exist
-            self.athlete_tree.insert("", 'end', values=("No athletes found", "Click 'New Athlete' to get started", "", "", "", ""))
+            self.athlete_tree.insert("", 'end', iid="_empty_",
+                                    values=("(No projects)", "Click 'New Athlete' to get started", "", "", "", ""))
             return
 
+        any_projects = False
+
         for athlete_dir in athletes:
-            status = self.athlete_manager.get_athlete_status(athlete_dir)
-
-            # Display name with project count for v2 athletes
-            display_name = athlete_dir.name
-            if status.get("is_v2"):
-                project_count = status.get("project_count", 0)
-                display_name = f"{athlete_dir.name} ({project_count} project{'s' if project_count != 1 else ''})"
-
-            # Determine workflow status
-            if status.get("is_v2") and status.get("project_count", 0) == 0:
-                workflow_status = "Needs project"
-            elif not status["has_clips"]:
-                workflow_status = "Needs clips"
-            elif not status["has_profile"]:
-                workflow_status = "Needs profile"
-            elif status["needs_marking"]:
-                workflow_status = "Ready to mark"
-            elif status["needs_rendering"]:
-                workflow_status = "Ready to render"
-            elif status["has_final"]:
-                workflow_status = "Complete"
+            # Get athlete profile to check if profile exists
+            v2 = is_v2_structure(athlete_dir)
+            if v2:
+                profile = get_athlete_profile(athlete_dir)
+                has_profile = bool(profile.get("name", "").strip())
             else:
-                workflow_status = "Unknown"
+                # v1: Check project.json for player data
+                project_json = athlete_dir / "project.json"
+                if project_json.exists():
+                    try:
+                        data = json.loads(project_json.read_text())
+                        has_profile = bool(data.get("player", {}).get("name", "").strip())
+                    except (IOError, json.JSONDecodeError):
+                        has_profile = False
+                else:
+                    has_profile = False
 
-            # Status indicators
-            profile_status = "✓" if status["has_profile"] else "✗"
-            clips_status = "✓" if status["has_clips"] else "✗"
-            # Show marking progress: ✓ if all marked, partial count if some marked, ✗ if none
-            if status["all_clips_marked"]:
-                marked_status = "✓"
-            elif status["marked_count"] > 0:
-                marked_status = f"{status['marked_count']}/{status['clips_count']}"
-            else:
-                marked_status = "✗"
-            rendered_status = "✓" if status["has_final"] else "✗"
+            # Get projects for this athlete
+            projects = self.athlete_manager.discover_projects(athlete_dir)
 
-            self.athlete_tree.insert("", 'end', values=(
-                display_name,
-                workflow_status,
-                profile_status,
-                clips_status,
-                marked_status,
-                rendered_status
-            ))
+            if not projects:
+                # v2 athlete with no projects - show placeholder row
+                row_id = f"{athlete_dir.name}|_no_project_"
+                self.athlete_tree.insert("", 'end', iid=row_id,
+                                        values=(athlete_dir.name, "(no projects)", "Needs project", "✗", "✗", "✗"))
+                any_projects = True
+                continue
+
+            for project_dir in projects:
+                any_projects = True
+                status = self.athlete_manager.get_project_status(project_dir)
+
+                # Determine project display name
+                if v2:
+                    project_name = project_dir.name
+                else:
+                    project_name = "(default)"
+
+                # Create row ID for selection tracking
+                row_id = f"{athlete_dir.name}|{project_name}"
+
+                # Determine workflow status for this project
+                if not status["has_clips"]:
+                    workflow_status = "Needs clips"
+                elif not has_profile:
+                    workflow_status = "Needs profile"
+                elif status["needs_marking"]:
+                    workflow_status = "Ready to mark"
+                elif status["needs_rendering"]:
+                    workflow_status = "Ready to render"
+                elif status["has_final"]:
+                    workflow_status = "Complete"
+                else:
+                    workflow_status = "Unknown"
+
+                # Status indicators
+                clips_status = "✓" if status["has_clips"] else "✗"
+                # Show marking progress: ✓ if all marked, partial count if some marked, ✗ if none
+                if status["all_clips_marked"]:
+                    marked_status = "✓"
+                elif status["marked_count"] > 0:
+                    marked_status = f"{status['marked_count']}/{status['clips_count']}"
+                else:
+                    marked_status = "✗"
+                rendered_status = "✓" if status["has_final"] else "✗"
+
+                self.athlete_tree.insert("", 'end', iid=row_id, values=(
+                    athlete_dir.name,
+                    project_name,
+                    workflow_status,
+                    clips_status,
+                    marked_status,
+                    rendered_status
+                ))
+
+        if not any_projects:
+            self.athlete_tree.insert("", 'end', iid="_empty_",
+                                    values=("(No projects)", "Click 'New Athlete' to get started", "", "", "", ""))
 
     def get_selected_athlete(self) -> Optional[pathlib.Path]:
-        """Get currently selected athlete directory"""
-        selection = self.athlete_tree.selection()
-        if not selection:
-            messagebox.showwarning("No Selection", "Please select an athlete first.")
-            return None
+        """Get currently selected athlete directory (from project row)"""
+        athlete_dir, _ = self.get_selected_project()
+        return athlete_dir
 
-        item = self.athlete_tree.item(selection[0])
-        athlete_name = item['values'][0]
-
-        if athlete_name == "No athletes found":
-            return None
-
-        # Strip project count suffix if present (e.g., "Phia Hull (3 projects)" -> "Phia Hull")
-        if " (" in athlete_name and athlete_name.endswith(")"):
-            athlete_name = athlete_name.rsplit(" (", 1)[0]
-
-        return ATHLETES / athlete_name
-
-    def _get_project_for_operation(self, athlete_dir: pathlib.Path, allow_create: bool = True) -> Optional[pathlib.Path]:
-        """Get the project directory for an operation.
-
-        For v1 athletes: returns athlete_dir (the project is the athlete folder)
-        For v2 athletes: shows project selection dialog and returns selected project
-
-        Args:
-            athlete_dir: The athlete directory
-            allow_create: Whether to allow creating new projects in dialog
+    def get_selected_project(self) -> tuple[Optional[pathlib.Path], Optional[pathlib.Path]]:
+        """Get currently selected (athlete_dir, project_dir) tuple.
 
         Returns:
-            Project directory path, or None if cancelled
+            Tuple of (athlete_dir, project_dir). Both are None if nothing valid is selected.
+            For v1 athletes, project_dir equals athlete_dir.
         """
-        if not is_v2_structure(athlete_dir):
-            # v1: athlete dir is the project dir
-            return athlete_dir
+        selection = self.athlete_tree.selection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a project first.")
+            return None, None
 
-        # v2: need to select a project
-        projects = list_projects(athlete_dir)
+        row_id = selection[0]
 
-        if len(projects) == 1:
-            # Single project, use it directly
-            return projects[0]
+        # Handle special rows
+        if row_id == "_empty_" or row_id.endswith("|_no_project_"):
+            if row_id.endswith("|_no_project_"):
+                # Athlete exists but has no projects
+                athlete_name = row_id.rsplit("|", 1)[0]
+                return ATHLETES / athlete_name, None
+            return None, None
 
-        # Multiple projects (or none) - show selection dialog
-        dialog = ProjectSelectionDialog(self.root, self.athlete_manager, athlete_dir, allow_create)
-        return dialog.result
+        # Parse row_id: "athlete_name|project_name"
+        if "|" not in row_id:
+            return None, None
+
+        athlete_name, project_name = row_id.split("|", 1)
+        athlete_dir = ATHLETES / athlete_name
+
+        if not athlete_dir.exists():
+            return None, None
+
+        # Determine project directory
+        if project_name == "(default)":
+            # v1 structure: athlete dir IS the project dir
+            project_dir = athlete_dir
+        else:
+            # v2 structure: project is under projects/ subdirectory
+            project_dir = athlete_dir / "projects" / project_name
+
+        return athlete_dir, project_dir
 
     def new_athlete(self):
         """Create a new athlete"""
@@ -835,13 +939,131 @@ class SoccerHypeGUI:
         # Enter key to create
         dialog.bind('<Return>', lambda e: create())
 
-    def open_athlete(self, event=None):
-        """Open athlete workflow (double-click handler)"""
-        athlete_dir = self.get_selected_athlete()
+    def new_project(self):
+        """Create a new project for the selected athlete"""
+        # Get selected athlete (even if no project is selected yet)
+        athlete_dir, _ = self.get_selected_project()
         if not athlete_dir:
             return
 
-        status = self.athlete_manager.get_athlete_status(athlete_dir)
+        # Check if there are existing projects to clone from
+        existing_projects = self.athlete_manager.discover_projects(athlete_dir)
+        has_cloneable = len(existing_projects) > 0
+
+        # Show creation dialog
+        create_dialog = tk.Toplevel(self.root)
+        create_dialog.title(f"New Project - {athlete_dir.name}")
+        create_dialog.resizable(False, False)
+        create_dialog.transient(self.root)
+        create_dialog.grab_set()
+        create_dialog.geometry(f"+{self.root.winfo_rootx() + 150}+{self.root.winfo_rooty() + 100}")
+
+        # Track selected clone source
+        clone_source_var = tk.StringVar(value="")
+
+        if has_cloneable:
+            create_dialog.geometry("400x280")
+
+            # Creation method selection
+            method_frame = tk.LabelFrame(create_dialog, text="Creation Method", font=("Segoe UI", 9))
+            method_frame.pack(fill='x', padx=10, pady=10)
+
+            method_var = tk.StringVar(value="scratch")
+
+            tk.Radiobutton(method_frame, text="Start from scratch (empty project)",
+                          variable=method_var, value="scratch",
+                          font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+            tk.Radiobutton(method_frame, text="Clone existing project (copy clips and marks)",
+                          variable=method_var, value="clone",
+                          font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+
+            # Clone source selection (only enabled when clone is selected)
+            clone_frame = tk.LabelFrame(create_dialog, text="Clone From", font=("Segoe UI", 9))
+            clone_frame.pack(fill='x', padx=10, pady=5)
+
+            clone_combo = ttk.Combobox(clone_frame, textvariable=clone_source_var,
+                                       values=[p.name for p in existing_projects],
+                                       state='disabled', font=("Segoe UI", 9))
+            clone_combo.pack(fill='x', padx=5, pady=5)
+            if existing_projects:
+                clone_combo.set(existing_projects[0].name)
+
+            def on_method_change(*args):
+                if method_var.get() == "clone":
+                    clone_combo.config(state='readonly')
+                else:
+                    clone_combo.config(state='disabled')
+
+            method_var.trace_add('write', on_method_change)
+        else:
+            create_dialog.geometry("350x140")
+            method_var = tk.StringVar(value="scratch")
+
+        # Project name entry
+        name_frame = tk.LabelFrame(create_dialog, text="Project Name", font=("Segoe UI", 9))
+        name_frame.pack(fill='x', padx=10, pady=5)
+
+        name_var = tk.StringVar()
+        entry = tk.Entry(name_frame, textvariable=name_var, font=("Segoe UI", 10), width=35)
+        entry.pack(padx=5, pady=5)
+        entry.focus()
+
+        def do_create():
+            name = name_var.get().strip()
+            if not name:
+                messagebox.showerror("Error", "Please enter a project name.")
+                return
+
+            try:
+                if method_var.get() == "clone":
+                    # Validate clone source is selected
+                    if not clone_source_var.get():
+                        messagebox.showerror("Error", "Please select a project to clone from.")
+                        return
+                    # Clone from existing project
+                    project_dir = clone_project(
+                        athlete_dir,
+                        clone_source_var.get(),
+                        name
+                    )
+                else:
+                    # Create from scratch
+                    project_dir = self.athlete_manager.create_project_for_athlete(athlete_dir, name)
+
+                create_dialog.destroy()
+                self.refresh_athletes()
+                messagebox.showinfo("Success",
+                    f"Created project: {name}\n\n"
+                    f"Next step: Add video clips to:\n"
+                    f"{project_dir}/clips_in/")
+            except FileExistsError:
+                messagebox.showerror("Error", f"Project '{name}' already exists.")
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to create project: {e}")
+
+        btn_frame = tk.Frame(create_dialog)
+        btn_frame.pack(pady=10)
+
+        tk.Button(btn_frame, text="Create", command=do_create, bg="#4CAF50", fg="white").pack(side='left', padx=5)
+        tk.Button(btn_frame, text="Cancel", command=create_dialog.destroy).pack(side='left', padx=5)
+
+        create_dialog.bind('<Return>', lambda e: do_create())
+
+    def open_athlete(self, event=None):
+        """Open project workflow (double-click handler)"""
+        athlete_dir, project_dir = self.get_selected_project()
+        if not athlete_dir:
+            return
+
+        # If no project exists, open folder to add one
+        if not project_dir:
+            self.open_folder()
+            return
+
+        # Get project-level status
+        status = self.athlete_manager.get_project_status(project_dir)
 
         if not status["has_clips"]:
             self.open_folder()
@@ -853,35 +1075,13 @@ class SoccerHypeGUI:
             self.view_final()
 
     def open_folder(self):
-        """Open athlete folder in file manager"""
-        athlete_dir = self.get_selected_athlete()
+        """Open project folder in file manager (directly from selected row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        # For v2 athletes with multiple projects, ask which folder to open
-        folder_to_open = athlete_dir
-        if is_v2_structure(athlete_dir):
-            projects = list_projects(athlete_dir)
-            if len(projects) > 0:
-                # Ask user which folder to open
-                choice = messagebox.askyesnocancel(
-                    "Open Folder",
-                    f"Open athlete root folder or a specific project?\n\n"
-                    f"• Yes = Athlete folder ({athlete_dir.name})\n"
-                    f"• No = Select a project folder\n"
-                    f"• Cancel = Do nothing",
-                    icon='question'
-                )
-                if choice is None:
-                    return  # Cancel
-                elif choice is False:
-                    # No - select project folder
-                    dialog = ProjectSelectionDialog(self.root, self.athlete_manager, athlete_dir, allow_create=False)
-                    if dialog.result:
-                        folder_to_open = dialog.result
-                    else:
-                        return  # User cancelled project selection
-                # Yes - use athlete_dir (already set)
+        # Use project folder if available, otherwise athlete folder
+        folder_to_open = project_dir if project_dir else athlete_dir
 
         try:
             import platform
@@ -931,15 +1131,14 @@ class SoccerHypeGUI:
             self.refresh_athletes()
 
     def mark_plays(self):
-        """Launch mark_play.py for selected athlete"""
-        athlete_dir = self.get_selected_athlete()
+        """Launch mark_play.py for selected project (directly from row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        # Get project directory (for v2, prompts for project selection)
-        project_dir = self._get_project_for_operation(athlete_dir, allow_create=True)
         if not project_dir:
-            return  # User cancelled
+            messagebox.showwarning("No Project", "Please select a project first, or create one with 'New Project'.")
+            return
 
         # Check clips in the specific project
         clips_in = project_dir / "clips_in"
@@ -1031,15 +1230,14 @@ class SoccerHypeGUI:
                              "Marking Plays", f"Launching play marking for {display_name}")
 
     def reorder_clips(self):
-        """Launch reorder_clips.py for selected athlete"""
-        athlete_dir = self.get_selected_athlete()
+        """Launch reorder_clips.py for selected project (directly from row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        # Get project directory (for v2, prompts for project selection)
-        project_dir = self._get_project_for_operation(athlete_dir, allow_create=True)
         if not project_dir:
-            return  # User cancelled
+            messagebox.showwarning("No Project", "Please select a project first, or create one with 'New Project'.")
+            return
 
         # Check if project exists
         project_path = project_dir / "project.json"
@@ -1053,15 +1251,14 @@ class SoccerHypeGUI:
                              "Ordering Clips", f"Launching clip ordering for {display_name}")
 
     def render_video(self):
-        """Launch render_highlight.py for selected athlete"""
-        athlete_dir = self.get_selected_athlete()
+        """Launch render_highlight.py for selected project (directly from row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        # Get project directory (for v2, prompts for project selection)
-        project_dir = self._get_project_for_operation(athlete_dir, allow_create=False)
         if not project_dir:
-            return  # User cancelled
+            messagebox.showwarning("No Project", "Please select a project first, or create one with 'New Project'.")
+            return
 
         # Check project status for the specific project
         project_path = project_dir / "project.json"
@@ -1109,15 +1306,14 @@ class SoccerHypeGUI:
                              "Rendering Video", f"Rendering highlight video for {display_name}")
 
     def view_final(self):
-        """Open final video in default player"""
-        athlete_dir = self.get_selected_athlete()
+        """Open final video in default player (directly from selected row)"""
+        athlete_dir, project_dir = self.get_selected_project()
         if not athlete_dir:
             return
 
-        # Get project directory (for v2, prompts for project selection)
-        project_dir = self._get_project_for_operation(athlete_dir, allow_create=False)
         if not project_dir:
-            return  # User cancelled
+            messagebox.showwarning("No Project", "Please select a project first.")
+            return
 
         v2 = is_v2_structure(athlete_dir)
         display_name = f"{athlete_dir.name}/{project_dir.name}" if v2 else athlete_dir.name

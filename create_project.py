@@ -12,10 +12,11 @@ Usage:
 import argparse
 import pathlib
 import sys
-from typing import List
+from typing import List, Optional
 
 from utils.structure import (
     create_project,
+    clone_project,
     create_v2_structure,
     is_v2_structure,
     list_projects,
@@ -90,6 +91,45 @@ def get_project_name_interactive(athlete_dir: pathlib.Path) -> str:
         return name
 
 
+def choose_clone_source_interactive(athlete_dir: pathlib.Path) -> Optional[str]:
+    """
+    Ask user whether to start from scratch or clone, and if cloning, which project.
+
+    Returns:
+        Project name to clone from, or None if starting from scratch
+    """
+    existing = list_projects(athlete_dir)
+
+    # If no existing projects, can't clone
+    if not existing or not is_v2_structure(athlete_dir):
+        return None
+
+    print("\nHow would you like to create this project?")
+    print("  1. Start from scratch (empty project)")
+    print("  2. Clone existing project (copy clips and marks)")
+
+    while True:
+        choice = input("Enter choice [1]: ").strip()
+        if choice == "" or choice == "1":
+            return None
+        if choice == "2":
+            break
+        print("Invalid choice. Enter 1 or 2.")
+
+    # Show existing projects to clone from
+    print("\nSelect project to clone from:")
+    for i, p in enumerate(existing, 1):
+        print(f"  {i}. {p.name}")
+
+    while True:
+        choice = input("Enter number: ").strip()
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(existing):
+                return existing[idx - 1].name
+        print("Invalid choice. Try again.")
+
+
 def upgrade_to_v2_if_needed(athlete_dir: pathlib.Path) -> bool:
     """
     Check if athlete uses v1 structure and offer to upgrade.
@@ -130,12 +170,14 @@ def main():
         epilog="""
 Examples:
   python create_project.py --athlete "Phia Hull" --project "Fall 2025"
-  python create_project.py --athlete "Phia Hull" --project "STXCL Playoffs"
-  python create_project.py  # Interactive mode
+  python create_project.py --athlete "Phia Hull" --project "Spring 2026" --clone "Fall 2025"
+  python create_project.py  # Interactive mode (offers clone option)
         """
     )
     parser.add_argument("--athlete", type=str, help="Athlete name")
     parser.add_argument("--project", type=str, help="New project name")
+    parser.add_argument("--clone", type=str,
+                       help="Clone from existing project instead of starting empty")
 
     args = parser.parse_args()
 
@@ -153,29 +195,50 @@ Examples:
     if not upgrade_to_v2_if_needed(athlete_dir):
         sys.exit(0)
 
+    # Determine clone source (if any)
+    clone_source = args.clone
+    if clone_source is None and not args.project:
+        # Interactive mode: ask about cloning
+        clone_source = choose_clone_source_interactive(athlete_dir)
+
     # Get project name
     if args.project:
         project_name = args.project.strip()
     else:
         project_name = get_project_name_interactive(athlete_dir)
 
-    # Create the project
+    # Create or clone the project
     try:
-        project_dir = create_project(athlete_dir, project_name)
+        if clone_source:
+            project_dir = clone_project(athlete_dir, clone_source, project_name)
+            print(f"\n✅ Cloned project '{clone_source}' → '{project_name}' for athlete '{athlete_dir.name}':")
+            print(f"   {project_dir}")
+            print(f"   ├─ clips_in/       # Copied from source")
+            print(f"   ├─ work/proxies/   # Copied from source")
+            print(f"   ├─ output/         # Empty (re-render needed)")
+            print(f"   └─ project.json    # Clip marks preserved")
+            print(f"\n📂 Next steps:")
+            print(f"   1. Modify clips or marks as needed")
+            print(f"   2. Mark plays: python mark_play.py --athlete \"{athlete_dir.name}\" --project \"{project_name}\"")
+            print(f"   3. Render: python render_highlight.py --athlete \"{athlete_dir.name}\" --project \"{project_name}\"")
+        else:
+            project_dir = create_project(athlete_dir, project_name)
+            print(f"\n✅ Created project '{project_name}' for athlete '{athlete_dir.name}':")
+            print(f"   {project_dir}")
+            print(f"   ├─ clips_in/       # Drop video clips here")
+            print(f"   ├─ work/proxies/   # Auto-generated")
+            print(f"   ├─ output/         # Final video here")
+            print(f"   └─ project.json")
+            print(f"\n📂 Next steps:")
+            print(f"   1. Drop clips into: {project_dir / 'clips_in'}")
+            print(f"   2. Mark plays: python mark_play.py --athlete \"{athlete_dir.name}\" --project \"{project_name}\"")
+            print(f"   3. Render: python render_highlight.py --athlete \"{athlete_dir.name}\" --project \"{project_name}\"")
     except FileExistsError as e:
         print(f"⚠ {e}")
         sys.exit(1)
-
-    print(f"\n✅ Created project '{project_name}' for athlete '{athlete_dir.name}':")
-    print(f"   {project_dir}")
-    print(f"   ├─ clips_in/       # Drop video clips here")
-    print(f"   ├─ work/proxies/   # Auto-generated")
-    print(f"   ├─ output/         # Final video here")
-    print(f"   └─ project.json")
-    print(f"\n📂 Next steps:")
-    print(f"   1. Drop clips into: {project_dir / 'clips_in'}")
-    print(f"   2. Mark plays: python mark_play.py --athlete \"{athlete_dir.name}\" --project \"{project_name}\"")
-    print(f"   3. Render: python render_highlight.py --athlete \"{athlete_dir.name}\" --project \"{project_name}\"")
+    except ValueError as e:
+        print(f"⚠ {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
