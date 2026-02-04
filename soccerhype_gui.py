@@ -513,8 +513,9 @@ class ProjectSelectionDialog:
 
     def create_project(self):
         """Create a new project (from scratch or by cloning)."""
-        # Check if there are existing projects to clone from
-        existing_projects = self.athlete_manager.discover_projects(self.athlete_dir)
+        # Check if there are existing projects to clone from (v2 only)
+        is_v2 = self.athlete_manager.is_v2_athlete(self.athlete_dir)
+        existing_projects = self.athlete_manager.discover_projects(self.athlete_dir) if is_v2 else []
         has_cloneable = len(existing_projects) > 0
 
         # Show creation method dialog if cloning is possible
@@ -850,6 +851,34 @@ class SoccerHypeGUI:
         athlete_dir, _ = self.get_selected_project()
         return athlete_dir
 
+    def _get_selected_athlete_silent(self) -> Optional[pathlib.Path]:
+        """Get currently selected athlete directory without showing any warnings.
+
+        Returns:
+            The athlete directory path if a row is selected, None otherwise.
+        """
+        selection = self.athlete_tree.selection()
+        if not selection:
+            return None
+
+        row_id = selection[0]
+
+        # Handle special rows
+        if row_id == "_empty_":
+            return None
+        if row_id.endswith("|_no_project_"):
+            athlete_name = row_id.rsplit("|", 1)[0]
+            return ATHLETES / athlete_name
+
+        # Parse row_id: "athlete_name|project_name"
+        if "|" not in row_id:
+            return None
+
+        athlete_name = row_id.split("|", 1)[0]
+        athlete_dir = ATHLETES / athlete_name
+
+        return athlete_dir if athlete_dir.exists() else None
+
     def get_selected_project(self) -> tuple[Optional[pathlib.Path], Optional[pathlib.Path]]:
         """Get currently selected (athlete_dir, project_dir) tuple.
 
@@ -940,64 +969,95 @@ class SoccerHypeGUI:
         dialog.bind('<Return>', lambda e: create())
 
     def new_project(self):
-        """Create a new project for the selected athlete"""
-        # Get selected athlete (even if no project is selected yet)
-        athlete_dir, _ = self.get_selected_project()
-        if not athlete_dir:
+        """Create a new project for an athlete (with athlete selection dropdown)"""
+        # Get all athletes
+        all_athletes = self.athlete_manager.discover_athletes()
+        if not all_athletes:
+            messagebox.showerror("No Athletes",
+                "No athletes found. Please create an athlete first.")
             return
 
-        # Check if there are existing projects to clone from
-        existing_projects = self.athlete_manager.discover_projects(athlete_dir)
-        has_cloneable = len(existing_projects) > 0
+        # Try to get pre-selected athlete (silently, no warning)
+        preselected_athlete = self._get_selected_athlete_silent()
 
         # Show creation dialog
         create_dialog = tk.Toplevel(self.root)
-        create_dialog.title(f"New Project - {athlete_dir.name}")
+        create_dialog.title("New Project")
         create_dialog.resizable(False, False)
         create_dialog.transient(self.root)
         create_dialog.grab_set()
         create_dialog.geometry(f"+{self.root.winfo_rootx() + 150}+{self.root.winfo_rooty() + 100}")
 
-        # Track selected clone source
-        clone_source_var = tk.StringVar(value="")
+        # Athlete selection dropdown
+        athlete_frame = tk.LabelFrame(create_dialog, text="Athlete", font=("Segoe UI", 9))
+        athlete_frame.pack(fill='x', padx=10, pady=10)
 
-        if has_cloneable:
-            create_dialog.geometry("400x280")
+        athlete_names = [a.name for a in all_athletes]
+        athlete_var = tk.StringVar()
+        athlete_combo = ttk.Combobox(athlete_frame, textvariable=athlete_var,
+                                     values=athlete_names, state='readonly',
+                                     font=("Segoe UI", 9))
+        athlete_combo.pack(fill='x', padx=5, pady=5)
 
-            # Creation method selection
-            method_frame = tk.LabelFrame(create_dialog, text="Creation Method", font=("Segoe UI", 9))
-            method_frame.pack(fill='x', padx=10, pady=10)
-
-            method_var = tk.StringVar(value="scratch")
-
-            tk.Radiobutton(method_frame, text="Start from scratch (empty project)",
-                          variable=method_var, value="scratch",
-                          font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
-            tk.Radiobutton(method_frame, text="Clone existing project (copy clips and marks)",
-                          variable=method_var, value="clone",
-                          font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
-
-            # Clone source selection (only enabled when clone is selected)
-            clone_frame = tk.LabelFrame(create_dialog, text="Clone From", font=("Segoe UI", 9))
-            clone_frame.pack(fill='x', padx=10, pady=5)
-
-            clone_combo = ttk.Combobox(clone_frame, textvariable=clone_source_var,
-                                       values=[p.name for p in existing_projects],
-                                       state='disabled', font=("Segoe UI", 9))
-            clone_combo.pack(fill='x', padx=5, pady=5)
-            if existing_projects:
-                clone_combo.set(existing_projects[0].name)
-
-            def on_method_change(*args):
-                if method_var.get() == "clone":
-                    clone_combo.config(state='readonly')
-                else:
-                    clone_combo.config(state='disabled')
-
-            method_var.trace_add('write', on_method_change)
+        # Pre-select athlete if one was selected, otherwise default to first
+        if preselected_athlete and preselected_athlete.name in athlete_names:
+            athlete_combo.set(preselected_athlete.name)
         else:
-            create_dialog.geometry("350x140")
-            method_var = tk.StringVar(value="scratch")
+            athlete_combo.set(athlete_names[0])
+
+        # Track selected clone source and method
+        clone_source_var = tk.StringVar(value="")
+        method_var = tk.StringVar(value="scratch")
+
+        # Clone UI elements (created once, visibility managed dynamically)
+        method_frame = tk.LabelFrame(create_dialog, text="Creation Method", font=("Segoe UI", 9))
+        tk.Radiobutton(method_frame, text="Start from scratch (empty project)",
+                      variable=method_var, value="scratch",
+                      font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+        tk.Radiobutton(method_frame, text="Clone existing project (copy clips and marks)",
+                      variable=method_var, value="clone",
+                      font=("Segoe UI", 9)).pack(anchor='w', padx=5, pady=2)
+
+        clone_frame = tk.LabelFrame(create_dialog, text="Clone From", font=("Segoe UI", 9))
+        clone_combo = ttk.Combobox(clone_frame, textvariable=clone_source_var,
+                                   state='disabled', font=("Segoe UI", 9))
+        clone_combo.pack(fill='x', padx=5, pady=5)
+
+        def on_method_change(*args):
+            if method_var.get() == "clone":
+                clone_combo.config(state='readonly')
+            else:
+                clone_combo.config(state='disabled')
+
+        method_var.trace_add('write', on_method_change)
+
+        def update_clone_options(*args):
+            """Update clone options when athlete selection changes"""
+            selected_name = athlete_var.get()
+            if not selected_name:
+                return
+
+            athlete_dir = ATHLETES / selected_name
+            # Only v2 athletes support cloning (v1 has no separate projects)
+            is_v2 = self.athlete_manager.is_v2_athlete(athlete_dir)
+            existing_projects = self.athlete_manager.discover_projects(athlete_dir) if is_v2 else []
+            has_cloneable = len(existing_projects) > 0
+
+            if has_cloneable:
+                method_frame.pack(fill='x', padx=10, pady=5, after=athlete_frame)
+                clone_frame.pack(fill='x', padx=10, pady=5, after=method_frame)
+                clone_combo.config(values=[p.name for p in existing_projects])
+                clone_combo.set(existing_projects[0].name)
+                create_dialog.geometry("400x330")
+            else:
+                method_frame.pack_forget()
+                clone_frame.pack_forget()
+                method_var.set("scratch")
+                create_dialog.geometry("350x190")
+
+        athlete_var.trace_add('write', update_clone_options)
+        # Initialize clone options for the default athlete
+        update_clone_options()
 
         # Project name entry
         name_frame = tk.LabelFrame(create_dialog, text="Project Name", font=("Segoe UI", 9))
@@ -1013,6 +1073,13 @@ class SoccerHypeGUI:
             if not name:
                 messagebox.showerror("Error", "Please enter a project name.")
                 return
+
+            selected_athlete_name = athlete_var.get()
+            if not selected_athlete_name:
+                messagebox.showerror("Error", "Please select an athlete.")
+                return
+
+            athlete_dir = ATHLETES / selected_athlete_name
 
             try:
                 if method_var.get() == "clone":
