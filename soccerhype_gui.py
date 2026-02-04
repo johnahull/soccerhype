@@ -724,6 +724,21 @@ class SoccerHypeGUI:
         # Double-click to open athlete
         self.athlete_tree.bind("<Double-1>", self.open_athlete)
 
+        # Create context menu for right-click
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Open Folder", command=self.open_folder)
+        self.context_menu.add_command(label="Set Profile", command=self.set_profile)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Order Clips", command=self.reorder_clips)
+        self.context_menu.add_command(label="Mark Plays", command=self.mark_plays)
+        self.context_menu.add_command(label="Render Video", command=self.render_video)
+        self.context_menu.add_command(label="View Final Video", command=self.view_final)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Delete Project...", command=self.delete_project)
+
+        # Bind right-click
+        self.athlete_tree.bind("<Button-3>", self.show_context_menu)
+
         # Action buttons for selected athlete
         action_frame = tk.Frame(main_frame)
         action_frame.pack(fill='x', pady=(10, 0))
@@ -920,6 +935,14 @@ class SoccerHypeGUI:
             project_dir = athlete_dir / "projects" / project_name
 
         return athlete_dir, project_dir
+
+    def show_context_menu(self, event):
+        """Show context menu on right-click"""
+        # Select the row under cursor
+        row_id = self.athlete_tree.identify_row(event.y)
+        if row_id and row_id != "_empty_":
+            self.athlete_tree.selection_set(row_id)
+            self.context_menu.post(event.x_root, event.y_root)
 
     def new_athlete(self):
         """Create a new athlete"""
@@ -1163,6 +1186,47 @@ class SoccerHypeGUI:
                 messagebox.showinfo("Info", f"Please open folder manually: {folder_to_open}")
         except (subprocess.CalledProcessError, FileNotFoundError):
             messagebox.showerror("Error", f"Could not open folder: {folder_to_open}")
+
+    def delete_project(self):
+        """Delete the selected project after confirmation"""
+        athlete_dir, project_dir = self.get_selected_project()
+        if not athlete_dir or not project_dir:
+            return
+
+        # Security: Validate project_dir is within ATHLETES directory
+        try:
+            project_dir.resolve().relative_to(ATHLETES.resolve())
+        except ValueError:
+            messagebox.showerror("Error", "Invalid project path.")
+            return
+
+        # Prevent deleting v1 athlete (would delete entire athlete)
+        if athlete_dir == project_dir:
+            messagebox.showerror("Cannot Delete",
+                "This is a legacy (v1) athlete folder.\n\n"
+                "To delete it, remove the folder manually from the file system.")
+            return
+
+        project_name = project_dir.name
+        athlete_name = athlete_dir.name
+
+        # Confirmation dialog
+        result = messagebox.askyesno("Delete Project",
+            f"Delete project '{project_name}' for {athlete_name}?\n\n"
+            f"This will permanently delete:\n"
+            f"  • All video clips in clips_in/\n"
+            f"  • All marking data\n"
+            f"  • The rendered video (if any)\n\n"
+            f"This cannot be undone.",
+            icon='warning')
+
+        if result:
+            try:
+                shutil.rmtree(project_dir)
+                self.refresh_athletes()
+                messagebox.showinfo("Deleted", f"Project '{project_name}' has been deleted.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete project: {e}")
 
     def set_profile(self):
         """Set player profile information for selected athlete"""
