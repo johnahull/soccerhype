@@ -1102,6 +1102,11 @@ class SoccerHypeGUI:
                 messagebox.showerror("Error", "Please select an athlete.")
                 return
 
+            # Security: Validate athlete name doesn't contain path traversal
+            if "/" in selected_athlete_name or "\\" in selected_athlete_name:
+                messagebox.showerror("Error", "Invalid athlete name.")
+                return
+
             athlete_dir = ATHLETES / selected_athlete_name
 
             try:

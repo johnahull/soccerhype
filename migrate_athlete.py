@@ -48,14 +48,31 @@ def parse_legacy_name(folder_name: str) -> Tuple[str, str]:
 
     Returns:
         Tuple of (athlete_name, project_name)
+
+    Raises:
+        ValueError: If names contain path traversal characters
     """
     # Try to split on " - " (with spaces around hyphen)
     if " - " in folder_name:
         parts = folder_name.split(" - ", 1)
-        return parts[0].strip(), parts[1].strip()
+        athlete_name, project_name = parts[0].strip(), parts[1].strip()
+    else:
+        # No separator found, use folder name as athlete and default project
+        athlete_name, project_name = folder_name.strip(), "Default"
 
-    # No separator found, use folder name as athlete and default project
-    return folder_name.strip(), "Default"
+    # Validate no path traversal characters
+    for name, label in [(athlete_name, "Athlete"), (project_name, "Project")]:
+        if "/" in name or "\\" in name or name.startswith(".") or name in (".", ".."):
+            raise ValueError(f"{label} name contains invalid characters: {name}")
+
+    return athlete_name, project_name
+
+
+def _atomic_write_json(path: pathlib.Path, data: dict) -> None:
+    """Write JSON atomically using temp file + rename pattern."""
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.rename(path)
 
 
 def find_legacy_folders() -> List[pathlib.Path]:
@@ -202,7 +219,7 @@ def migrate_athlete(
         athlete_json_path = athlete_dir / "athlete.json"
         if not athlete_json_path.exists():
             player_data["schema_version"] = SCHEMA_VERSION
-            athlete_json_path.write_text(json.dumps(player_data, indent=2))
+            _atomic_write_json(athlete_json_path, player_data)
 
         # Create projects directory
         (athlete_dir / "projects").mkdir(exist_ok=True)
@@ -237,7 +254,7 @@ def migrate_athlete(
         project_data["schema_version"] = SCHEMA_VERSION
         project_data["project_name"] = project_name
         project_json_dst = project_dir / "project.json"
-        project_json_dst.write_text(json.dumps(project_data, indent=2))
+        _atomic_write_json(project_json_dst, project_data)
 
         # Remove old project.json if in different location
         if not is_same_location and project_json_path.exists():

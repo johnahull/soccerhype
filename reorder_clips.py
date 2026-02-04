@@ -635,8 +635,15 @@ class ReorderGUI(tk.Tk):
         self.is_modified = True
         self.update_title()
 
-        # Delete file if requested
+        # Delete file if requested (with path validation)
         if delete_file and source_file:
+            try:
+                # Security: Validate file is within project directory
+                source_file.resolve().relative_to(self.base.resolve())
+            except ValueError:
+                messagebox.showwarning("Warning", "Cannot delete file outside project directory")
+                return
+
             try:
                 source_file.unlink()
                 # Also delete proxy if it exists
@@ -644,7 +651,12 @@ class ReorderGUI(tk.Tk):
                 if proxy_path:
                     proxy = pathlib.Path(proxy_path)
                     if proxy.exists():
-                        proxy.unlink()
+                        # Validate proxy path too
+                        try:
+                            proxy.resolve().relative_to(self.base.resolve())
+                            proxy.unlink()
+                        except ValueError:
+                            pass  # Skip proxy outside project dir
             except OSError as e:
                 messagebox.showwarning("Warning", f"Could not delete file: {e}")
 
