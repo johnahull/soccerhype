@@ -290,6 +290,14 @@ class ReorderGUI(tk.Tk):
         self.preview_area = PreviewArea(right)
         self.preview_area.grid(row=1, column=0, sticky="nsew", pady=(4,0))
 
+        # Right-click context menu
+        self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="Preview", command=self.preview_selected)
+        self.context_menu.add_command(label="Re-mark this clip", command=self.remark_selected)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Remove", command=self.remove_selected)
+        self.listbox.bind("<Button-3>", self.show_context_menu)
+
         # Double-click list item to preview
         self.listbox.bind("<Double-Button-1>", lambda e: self.preview_selected())
         # Show clip info when selection changes
@@ -514,6 +522,67 @@ class ReorderGUI(tk.Tk):
                 self.preview_area.show_status(f"Selected: {clip_name}\n\n⚠️ File not found")
         except Exception:
             self.preview_area.reset()
+
+    def show_context_menu(self, event):
+        """Show right-click context menu, selecting the item under the cursor."""
+        index = self.listbox.nearest(event.y)
+        if 0 <= index < len(self.clips):
+            try:
+                self.listbox.selection_clear(0, tk.END)
+                self.listbox.selection_set(index)
+                self.listbox.activate(index)
+                self.on_selection_change()
+                self.context_menu.post(event.x_root, event.y_root)
+            except (tk.TclError, IndexError):
+                pass
+
+    def remark_selected(self):
+        """Strip marking fields from selected clip so it can be re-marked."""
+        i = self.current_selection()
+        if i is None:
+            messagebox.showwarning("No Selection", "Please select a clip to re-mark.")
+            return
+
+        if i < 0 or i >= len(self.clips):
+            return
+
+        clip = self.clips[i]
+        clip_name = pathlib.Path(clip.get("file", "") or clip.get("std_file", "")).name
+
+        if not is_clip_marked(clip):
+            messagebox.showinfo("Already Unmarked",
+                                f"{clip_name} is not marked yet.")
+            return
+
+        if not messagebox.askyesno(
+            "Re-mark Clip",
+            f"Re-mark this clip?\n\n{clip_name}\n\n"
+            "It will need to be marked again in mark_play.",
+            icon='question'
+        ):
+            return
+
+        marking_fields = [
+            'marker_x_std', 'marker_y_std', 'radius_std',
+            'start_trim', 'end_trim', 'spot_time', 'spot_frame_std',
+        ]
+        for field in marking_fields:
+            clip.pop(field, None)
+
+        self.is_modified = True
+        self.update_title()
+
+        # Update just the affected listbox item
+        display_name = self.get_clip_display_name(clip)
+        self.listbox.delete(i)
+        self.listbox.insert(i, display_name)
+        section = clip.get("section")
+        if section and section in SECTION_COLORS:
+            self.listbox.itemconfig(i, fg=SECTION_COLORS[section])
+        else:
+            self.listbox.itemconfig(i, fg=OVERLAY_DEFAULT_COLOR)
+        self.listbox.selection_set(i)
+        self.listbox.activate(i)
 
     def move_up(self):
         i = self.current_selection()
@@ -799,7 +868,7 @@ class ReorderGUI(tk.Tk):
         pj = save_project(self.base, self.project)
         self.is_modified = False
         self.update_title()
-        messagebox.showinfo("Saved", f"Order saved to:\n{pj}\n\nNow run render_highlight.py.")
+        messagebox.showinfo("Saved", f"Order saved to:\n{pj}\n\nNow run mark_play.py to mark your clips.")
 
     def update_title(self):
         """Update window title to reflect unsaved changes"""
