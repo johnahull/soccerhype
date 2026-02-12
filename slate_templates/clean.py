@@ -68,8 +68,8 @@ class CleanTemplate(SlateTemplate):
                 img.paste(pic, (bx + border, by + border))
                 photo_loaded = True
                 photo_right_edge = bx + nw + border * 2 + 60
-            except Exception as e:
-                print(f"Warning: Could not load picture {intro_image}: {e}")
+            except (OSError, IOError, ValueError) as e:
+                print(f"Warning: Could not load picture {intro_image}: {type(e).__name__}: {e}")
 
         # Text area (above divider)
         if photo_loaded:

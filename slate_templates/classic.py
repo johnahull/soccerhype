@@ -113,8 +113,8 @@ class ClassicTemplate(SlateTemplate):
                 img_rgba.paste(rounded_pic, (pic_x, pic_y), rounded_pic)
                 img = img_rgba.convert("RGB")
                 draw = ImageDraw.Draw(img)
-            except Exception as e:
-                print(f"Warning: Could not load picture {intro_image}: {e}")
+            except (OSError, IOError, ValueError) as e:
+                print(f"Warning: Could not load picture {intro_image}: {type(e).__name__}: {e}")
                 intro_image = None
 
         if intro_image:

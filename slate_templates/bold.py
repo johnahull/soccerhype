@@ -44,8 +44,8 @@ class BoldTemplate(SlateTemplate):
                 # Slight blur for depth
                 bg = bg.filter(ImageFilter.GaussianBlur(radius=3))
                 img = bg
-            except Exception as e:
-                print(f"Warning: Could not load picture {intro_image}: {e}")
+            except (OSError, IOError, ValueError) as e:
+                print(f"Warning: Could not load picture {intro_image}: {type(e).__name__}: {e}")
                 img = Image.new("RGB", (W, H), self._CHARCOAL)
         else:
             img = Image.new("RGB", (W, H), self._CHARCOAL)

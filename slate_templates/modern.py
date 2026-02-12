@@ -97,8 +97,8 @@ class ModernTemplate(SlateTemplate):
                 img = img_rgba.convert("RGB")
                 draw = ImageDraw.Draw(img)
                 photo_loaded = True
-            except Exception as e:
-                print(f"Warning: Could not load picture {intro_image}: {e}")
+            except (OSError, IOError, ValueError) as e:
+                print(f"Warning: Could not load picture {intro_image}: {type(e).__name__}: {e}")
 
         # Text layout
         if photo_loaded:

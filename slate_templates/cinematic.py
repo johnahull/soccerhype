@@ -62,8 +62,8 @@ class CinematicTemplate(SlateTemplate):
                 bg = ImageEnhance.Brightness(bg).enhance(0.35)
                 bg = bg.filter(ImageFilter.GaussianBlur(radius=2))
                 img = bg
-            except Exception as e:
-                print(f"Warning: Could not load picture {intro_image}: {e}")
+            except (OSError, IOError, ValueError) as e:
+                print(f"Warning: Could not load picture {intro_image}: {type(e).__name__}: {e}")
                 img = Image.new("RGB", (W, H), self._BG)
         else:
             img = Image.new("RGB", (W, H), self._BG)

@@ -14,13 +14,23 @@ from PIL import Image, ImageDraw, ImageFont
 
 # ── shared font utilities ──────────────────────────────────────────
 
+# Font cache to improve performance on repeated loads
+_FONT_CACHE: dict[tuple[int, bool], ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}
+
 def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     """Load a TrueType font at the given size, falling back to default.
 
     Args:
         size: Font point size.
         bold: If True, prefer a bold variant.
+
+    Returns:
+        Cached font instance for improved performance.
     """
+    cache_key = (size, bold)
+    if cache_key in _FONT_CACHE:
+        return _FONT_CACHE[cache_key]
+
     if bold:
         candidates = [
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -51,12 +61,20 @@ def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFo
             else "C:/Windows/Fonts/DejaVuSans.ttf",
         ]
 
+    font = None
     for path in candidates:
         try:
-            return ImageFont.truetype(path, size)
-        except Exception:
+            font = ImageFont.truetype(path, size)
+            break
+        except (OSError, IOError):
+            # Font file doesn't exist or can't be opened
             pass
-    return ImageFont.load_default()
+
+    if font is None:
+        font = ImageFont.load_default()
+
+    _FONT_CACHE[cache_key] = font
+    return font
 
 
 def escape_drawtext(text: str) -> str:
