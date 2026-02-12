@@ -66,7 +66,9 @@ def _extract_video_frame(video_path: pathlib.Path) -> pathlib.Path | None:
     Returns path to a temporary PNG, or None on failure.
     """
     import tempfile
-    tmp = pathlib.Path(tempfile.mktemp(suffix=".png", prefix="slate_preview_"))
+    tmp_fd = tempfile.NamedTemporaryFile(suffix=".png", prefix="slate_preview_", delete=False)
+    tmp = pathlib.Path(tmp_fd.name)
+    tmp_fd.close()
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-ss", "1", "-i", str(video_path),
