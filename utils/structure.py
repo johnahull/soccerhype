@@ -416,6 +416,7 @@ def create_project(athlete_dir: pathlib.Path, project_name: str) -> pathlib.Path
         "project_name": project_name,
         "include_intro": True,
         "intro_media": None,
+        "slate_template": None,
         "clips": []
     }
     _atomic_write_json(project_dir / "project.json", project_data)
@@ -518,6 +519,7 @@ def clone_project(
                 "project_name": target_project,
                 "include_intro": True,
                 "intro_media": None,
+                "slate_template": None,
                 "clips": []
             }
             _atomic_write_json(temp_dir / "project.json", project_data)
