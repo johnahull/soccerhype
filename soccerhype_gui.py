@@ -57,6 +57,33 @@ except ImportError:
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
+_VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+
+
+def _extract_video_frame(video_path: pathlib.Path) -> pathlib.Path | None:
+    """Extract a single frame from a video for use as a slate preview image.
+
+    Returns path to a temporary PNG, or None on failure.
+    """
+    import tempfile
+    tmp_fd = tempfile.NamedTemporaryFile(suffix=".png", prefix="slate_preview_", delete=False)
+    tmp = pathlib.Path(tmp_fd.name)
+    tmp_fd.close()
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", "1", "-i", str(video_path),
+             "-frames:v", "1", "-q:v", "2", str(tmp)],
+            capture_output=True, timeout=10,
+        )
+        if tmp.exists() and tmp.stat().st_size > 0:
+            return tmp
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    # Clean up temp file on failure
+    tmp.unlink(missing_ok=True)
+    return None
+
+
 class AthleteManager:
     """Handles athlete data and folder management"""
 
@@ -728,6 +755,7 @@ class SoccerHypeGUI:
         self.context_menu = tk.Menu(self.root, tearoff=0)
         self.context_menu.add_command(label="Open Folder", command=self.open_folder)
         self.context_menu.add_command(label="Set Profile", command=self.set_profile)
+        self.context_menu.add_command(label="Choose Slate...", command=self.choose_slate_template)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Order Clips", command=self.reorder_clips)
         self.context_menu.add_command(label="Mark Plays", command=self.mark_plays)
@@ -1266,6 +1294,92 @@ class SoccerHypeGUI:
             # Profile was saved by the dialog, refresh the list
             self.refresh_athletes()
 
+    def choose_slate_template(self):
+        """Open the slate template chooser for the selected project."""
+        from slate_template_chooser import SlateTemplateChooser
+
+        athlete_dir, project_dir = self.get_selected_project()
+        if not athlete_dir or not project_dir:
+            return
+
+        # Load player data for preview rendering
+        v2 = is_v2_structure(athlete_dir)
+        if v2:
+            player = get_athlete_profile(athlete_dir)
+        else:
+            project_path = project_dir / "project.json"
+            if project_path.exists():
+                try:
+                    data = json.loads(project_path.read_text())
+                    player = data.get("player", {})
+                except (IOError, json.JSONDecodeError):
+                    player = {}
+            else:
+                player = {}
+
+        if not player.get("name"):
+            messagebox.showwarning("No Profile",
+                                   "Set a player profile first so previews can be rendered.")
+            return
+
+        # Resolve intro media for previews
+        intro_image = None
+        _temp_frame = None
+        project_path = project_dir / "project.json"
+        if project_path.exists():
+            try:
+                proj_data = json.loads(project_path.read_text())
+                media_rel = proj_data.get("intro_media")
+                if media_rel:
+                    if v2:
+                        candidate = athlete_dir / media_rel
+                    else:
+                        candidate = project_dir / media_rel
+                    if candidate.exists():
+                        if candidate.suffix.lower() in {
+                            ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"
+                        }:
+                            intro_image = candidate
+                        elif candidate.suffix.lower() in _VIDEO_EXTS:
+                            _temp_frame = _extract_video_frame(candidate)
+                            if _temp_frame:
+                                intro_image = _temp_frame
+            except (IOError, json.JSONDecodeError):
+                pass
+
+        # Current template from project.json
+        current_template = None
+        if project_path.exists():
+            try:
+                proj_data = json.loads(project_path.read_text())
+                current_template = proj_data.get("slate_template")
+            except (IOError, json.JSONDecodeError):
+                pass
+
+        result = SlateTemplateChooser.choose(
+            self.root, player, intro_image, current=current_template
+        )
+
+        if result is not None:
+            # Save to project.json
+            if project_path.exists():
+                try:
+                    proj_data = json.loads(project_path.read_text())
+                    proj_data["slate_template"] = result
+                    with open(project_path, "w") as f:
+                        json.dump(proj_data, f, indent=2)
+                    messagebox.showinfo("Slate Template",
+                                        f"Template set to: {result.title()}")
+                except (IOError, json.JSONDecodeError) as e:
+                    messagebox.showerror("Error", f"Failed to save template choice:\n{e}")
+            else:
+                messagebox.showwarning("No Project",
+                                       "No project.json found. Set up the project first.")
+
+        # Clean up temp frame extracted from video
+        if _temp_frame and _temp_frame.exists():
+            _temp_frame.unlink(missing_ok=True)
+
     def mark_plays(self):
         """Launch mark_play.py for selected project (directly from row)"""
         athlete_dir, project_dir = self.get_selected_project()
@@ -1715,6 +1829,26 @@ class PlayerInfoDialog:
         tk.Button(media_btn_frame, text="Clear Selection", command=self.clear_media_selection,
                  font=("Segoe UI", 9)).pack(side='left')
 
+        # Slate Template Section
+        slate_frame = tk.Frame(scrollable_frame, relief="solid", bd=1, bg="#f8f9fa")
+        slate_frame.pack(fill='x', pady=15)
+
+        tk.Label(slate_frame, text="Slate Template",
+                 font=("Segoe UI", 12, "bold"), bg="#f8f9fa").pack(anchor='w', padx=10, pady=(10, 5))
+
+        slate_inner = tk.Frame(slate_frame, bg="#f8f9fa")
+        slate_inner.pack(fill='x', padx=10, pady=(0, 10))
+
+        self.slate_template_var = tk.StringVar(value="classic")
+        self.slate_template_label = tk.Label(
+            slate_inner, text="Current: Classic (default)",
+            font=("Segoe UI", 9), bg="#f8f9fa")
+        self.slate_template_label.pack(anchor='w', pady=(0, 5))
+
+        tk.Button(slate_inner, text="Change Template...",
+                  command=self._open_slate_chooser,
+                  font=("Segoe UI", 9)).pack(anchor='w')
+
         # Checkboxes
         checkbox_frame = tk.Frame(scrollable_frame)
         checkbox_frame.pack(fill='x', pady=15)
@@ -1747,6 +1881,20 @@ class PlayerInfoDialog:
                 if athlete_json.exists():
                     data = json.loads(athlete_json.read_text())
                     self._populate_form_from_data(data)
+                # v2: Load slate_template from first project's project.json
+                projects_dir = self.athlete_dir / "projects"
+                if projects_dir.exists():
+                    for pdir in sorted(projects_dir.iterdir()):
+                        pjson = pdir / "project.json"
+                        if pjson.exists():
+                            pdata = json.loads(pjson.read_text())
+                            tpl = pdata.get("slate_template")
+                            if tpl:
+                                self.slate_template_var.set(tpl)
+                                from slate_templates import get_template
+                                self.slate_template_label.config(
+                                    text=f"Current: {get_template(tpl).display_name}")
+                            break
             else:
                 # v1: Load from project.json
                 project_json = self.athlete_dir / "project.json"
@@ -1761,6 +1909,13 @@ class PlayerInfoDialog:
                         if intro_path.exists():
                             self.selected_media_var.set(str(intro_path))
                             self.current_media_label.config(text=f"Selected: {intro_path.name}")
+                    # Load slate template
+                    tpl = data.get("slate_template")
+                    if tpl:
+                        self.slate_template_var.set(tpl)
+                        from slate_templates import get_template
+                        self.slate_template_label.config(
+                            text=f"Current: {get_template(tpl).display_name}")
         except (IOError, json.JSONDecodeError):
             pass  # No existing data to load
 
@@ -1806,6 +1961,54 @@ class PlayerInfoDialog:
                 self.current_media_label.config(text=f"Found {len(self.media_files)} media file(s) in intro folder")
             else:
                 self.current_media_label.config(text="No media files found in intro folder")
+
+    def _open_slate_chooser(self):
+        """Open the slate template chooser dialog."""
+        from slate_template_chooser import SlateTemplateChooser
+        from slate_templates import get_template
+
+        # Build player dict from current form values
+        player = {
+            "name": self.name_var.get().strip() or "Player Name",
+            "position": self.position_var.get().strip(),
+            "grad_year": self.grad_year_var.get().strip(),
+            "club_team": self.club_team_var.get().strip(),
+            "high_school": self.high_school_var.get().strip(),
+            "height_weight": self.height_weight_var.get().strip(),
+            "gpa": self.gpa_var.get().strip(),
+            "email": self.email_var.get().strip(),
+            "phone": self.phone_var.get().strip(),
+        }
+
+        # Resolve intro media for preview
+        intro_image = None
+        _temp_frame = None
+        media_path_str = self.selected_media_var.get()
+        if media_path_str:
+            candidate = pathlib.Path(media_path_str)
+            if candidate.exists():
+                if candidate.suffix.lower() in {
+                    ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"
+                }:
+                    intro_image = candidate
+                elif candidate.suffix.lower() in _VIDEO_EXTS:
+                    _temp_frame = _extract_video_frame(candidate)
+                    if _temp_frame:
+                        intro_image = _temp_frame
+
+        result = SlateTemplateChooser.choose(
+            self.dialog, player, intro_image,
+            current=self.slate_template_var.get()
+        )
+
+        # Clean up temp frame extracted from video
+        if _temp_frame and _temp_frame.exists():
+            _temp_frame.unlink(missing_ok=True)
+
+        if result is not None:
+            self.slate_template_var.set(result)
+            tpl = get_template(result)
+            self.slate_template_label.config(text=f"Current: {tpl.display_name}")
 
     def browse_media(self):
         """Browse and upload media files"""
@@ -2027,6 +2230,12 @@ class PlayerInfoDialog:
                                     # Only update intro_media if not already set
                                     if not project_data.get("intro_media") and intro_media:
                                         project_data["intro_media"] = intro_media
+                                    # Update slate template
+                                    tpl_val = self.slate_template_var.get()
+                                    if tpl_val and tpl_val != "classic":
+                                        project_data["slate_template"] = tpl_val
+                                    elif "slate_template" in project_data and tpl_val == "classic":
+                                        project_data["slate_template"] = None
                                     with open(project_json_path, 'w') as f:
                                         json.dump(project_data, f, indent=2)
                                 except (IOError, json.JSONDecodeError):
@@ -2047,10 +2256,12 @@ class PlayerInfoDialog:
                     except (IOError, json.JSONDecodeError):
                         pass
 
+                tpl_val = self.slate_template_var.get()
                 project_data = {
                     "player": player_data,
                     "include_intro": self.include_intro_var.get(),
                     "intro_media": intro_media,
+                    "slate_template": tpl_val if tpl_val != "classic" else None,
                     "clips": existing_clips
                 }
 

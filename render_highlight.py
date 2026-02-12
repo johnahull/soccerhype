@@ -424,194 +424,27 @@ def choose_intro_media(intro_files: dict) -> pathlib.Path | None:
                 return options[idx-1]
         print("Invalid choice. Try again.")
 
-def make_slate(player: dict, out_path: pathlib.Path, work: pathlib.Path, intro_media: pathlib.Path | None = None):
+def make_slate(player: dict, out_path: pathlib.Path, work: pathlib.Path,
+               intro_media: pathlib.Path | None = None, template_name: str | None = None):
     """Create intro slate with optional picture or video integration."""
-    
+
     # If intro_media is a video file, handle it directly
     if intro_media and intro_media.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm"}:
-        make_slate_with_video(player, out_path, work, intro_media)
+        make_slate_with_video(player, out_path, work, intro_media, template_name=template_name)
         return
-    
+
     # Create image-based slate (with or without picture)
-    make_slate_with_image(player, out_path, work, intro_media)
+    make_slate_with_image(player, out_path, work, intro_media, template_name=template_name)
 
-def make_slate_with_image(player: dict, out_path: pathlib.Path, work: pathlib.Path, intro_image: pathlib.Path | None = None):
-    """Create slate with player profile card design matching phia-profile.jpg style."""
-    W, H = 1920, 1080
-    img = Image.new("RGB", (W, H), (0, 0, 0))
-    draw = ImageDraw.Draw(img)
+def make_slate_with_image(player: dict, out_path: pathlib.Path, work: pathlib.Path,
+                          intro_image: pathlib.Path | None = None, template_name: str | None = None):
+    """Create slate with player profile card using the selected template."""
+    from slate_templates import get_template
 
-    # Player data
-    name = (player.get("name") or "Player Name")
-    pos = (player.get("position") or "")
-    grad = str(player.get("grad_year") or "")
-    club = (player.get("club_team") or "")
-    hs = (player.get("high_school") or "")
-    hw = (player.get("height_weight") or "")
-    gpa = (player.get("gpa") or "")
-    email = (player.get("email") or "")
-    phone = (player.get("phone") or "")
+    template = get_template(template_name)
+    print(f"  Using slate template: {template.display_name}")
 
-    # Draw corner brackets
-    bracket_color = (128, 128, 128)  # Gray color for brackets
-    bracket_size = 60
-    bracket_thickness = 4
-    margin = 80
-    
-    # Top-left bracket
-    draw.line([(margin, margin), (margin + bracket_size, margin)], fill=bracket_color, width=bracket_thickness)
-    draw.line([(margin, margin), (margin, margin + bracket_size)], fill=bracket_color, width=bracket_thickness)
-    
-    # Top-right bracket
-    draw.line([(W - margin - bracket_size, margin), (W - margin, margin)], fill=bracket_color, width=bracket_thickness)
-    draw.line([(W - margin, margin), (W - margin, margin + bracket_size)], fill=bracket_color, width=bracket_thickness)
-    
-    # Bottom-left bracket
-    draw.line([(margin, H - margin - bracket_size), (margin, H - margin)], fill=bracket_color, width=bracket_thickness)
-    draw.line([(margin, H - margin), (margin + bracket_size, H - margin)], fill=bracket_color, width=bracket_thickness)
-    
-    # Bottom-right bracket
-    draw.line([(W - margin, H - margin - bracket_size), (W - margin, H - margin)], fill=bracket_color, width=bracket_thickness)
-    draw.line([(W - margin - bracket_size, H - margin), (W - margin, H - margin)], fill=bracket_color, width=bracket_thickness)
-
-    # Draw "PLAYER PROFILE" header - positioned over the profile text area (75%)
-    header_font = _load_font(48)
-    header_text = "PLAYER PROFILE"
-    header_bbox = draw.textbbox((0, 0), header_text, font=header_font)
-    header_w = header_bbox[2] - header_bbox[0]
-    header_x = int(W * 0.66 - header_w // 2)  # Center at 66% of slate width
-    header_y = 120
-    draw.text((header_x, header_y), header_text, fill=(255, 255, 255), font=header_font)
-
-    # Colors and fonts
-    label_color = (255, 215, 0)  # Gold/yellow color
-    data_color = (255, 255, 255)  # White for data
-    label_font = _load_font(24)
-    data_font = _load_font(36)
-    name_font = _load_font(52)
-    
-    # Build text elements for stats (excluding name which gets special positioning)
-    stats_elements = []
-    
-    # Other elements
-    if pos:
-        stats_elements.append(("POSITION", pos.upper(), label_font, label_color, False))
-    if hw:
-        stats_elements.append(("HEIGHT | WEIGHT", hw, label_font, label_color, False))
-    if grad:
-        stats_elements.append(("GRADUATION YEAR", f"CLASS OF {grad}", label_font, label_color, False))
-    if club:
-        stats_elements.append(("CLUB", club.upper(), label_font, label_color, False))
-    if hs:
-        stats_elements.append(("HIGH SCHOOL", hs.upper(), label_font, label_color, False))
-    if gpa:
-        stats_elements.append(("GPA", str(gpa), label_font, label_color, False))
-    if email:
-        stats_elements.append(("EMAIL", email.lower(), label_font, label_color, False))
-    if phone:
-        stats_elements.append(("PHONE", phone, label_font, label_color, False))
-    
-    if intro_image:
-        # Layout with picture: centered at 25% of slate width
-        pic_area_w = 450
-        pic_area_h = 600
-        pic_area_x = int(W * 0.33 - pic_area_w // 2)  # Center at 33% of slate width
-        pic_area_y = 220
-        
-        # Load and display picture
-        try:
-            player_pic = Image.open(intro_image).convert("RGBA")
-            
-            # Resize picture to fit in the designated area with rounded corners
-            pic_w, pic_h = player_pic.size
-            scale = min(pic_area_w / pic_w, pic_area_h / pic_h, 1.0)
-            new_w, new_h = int(pic_w * scale), int(pic_h * scale)
-            player_pic = player_pic.resize((new_w, new_h), Image.LANCZOS)
-            
-            # Create rounded rectangle mask
-            mask = Image.new("L", (new_w, new_h), 0)
-            mask_draw = ImageDraw.Draw(mask)
-            mask_draw.rounded_rectangle([(0, 0), (new_w, new_h)], radius=20, fill=255)
-            
-            # Apply mask to create rounded corners
-            rounded_pic = Image.new("RGBA", (new_w, new_h), (0, 0, 0, 0))
-            rounded_pic.paste(player_pic, (0, 0))
-            rounded_pic.putalpha(mask)
-            
-            # Center picture in left half
-            pic_x = pic_area_x + (pic_area_w - new_w) // 2
-            pic_y = pic_area_y + (pic_area_h - new_h) // 2
-            
-            # Paste picture onto main image
-            img_rgba = img.convert("RGBA")
-            img_rgba.paste(rounded_pic, (pic_x, pic_y), rounded_pic)
-            img = img_rgba.convert("RGB")
-            draw = ImageDraw.Draw(img)
-            
-        except Exception as e:
-            print(f"Warning: Could not load picture {intro_image}: {e}")
-            intro_image = None  # Fall back to no-picture layout
-    
-    if intro_image:
-        # Player name centered at 25% of slate width (below picture)
-        name_bbox = draw.textbbox((0, 0), name, font=name_font)
-        name_w = name_bbox[2] - name_bbox[0]
-        name_x = int(W * 0.33 - name_w // 2)  # Center at 33% of slate width
-        name_y = pic_area_y + pic_area_h + 30
-        draw.text((name_x, name_y), name, fill=data_color, font=name_font)
-        
-        # Stats centered at 75% of slate width
-        text_center_x = int(W * 0.66)  # Center at 66% of slate width
-        
-        # Calculate total height needed for stats
-        line_spacing = 85
-        total_height = len(stats_elements) * line_spacing - (line_spacing - 50) if stats_elements else 0
-        start_y = (H - total_height) // 2
-        
-        current_y = start_y
-        for label, text, font, color, is_name in stats_elements:
-            # Label and data on separate lines, centered
-            bbox = draw.textbbox((0, 0), label, font=label_font)
-            label_w = bbox[2] - bbox[0]
-            label_x = text_center_x - label_w // 2
-            draw.text((label_x, current_y), label, fill=label_color, font=label_font)
-            
-            bbox = draw.textbbox((0, 0), text, font=data_font)
-            data_w = bbox[2] - bbox[0]
-            data_x = text_center_x - data_w // 2
-            draw.text((data_x, current_y + 35), text, fill=data_color, font=data_font)
-            current_y += line_spacing
-    else:
-        # No picture: name centered below "PLAYER PROFILE" header, then stats below
-        
-        # Player name centered below header
-        name_bbox = draw.textbbox((0, 0), name, font=name_font)
-        name_w = name_bbox[2] - name_bbox[0]
-        name_x = (W - name_w) // 2
-        name_y = header_y + 80  # Below the header
-        draw.text((name_x, name_y), name, fill=data_color, font=name_font)
-        
-        # Stats centered below name
-        text_center_x = W // 2
-        
-        # Calculate total height needed for stats
-        line_spacing = 95
-        total_height = len(stats_elements) * line_spacing - (line_spacing - 60) if stats_elements else 0
-        start_y = name_y + 100  # Below name with some spacing
-        
-        current_y = start_y
-        for label, text, font, color, is_name in stats_elements:
-            # Label and data on separate lines, centered
-            bbox = draw.textbbox((0, 0), label, font=label_font)
-            label_w = bbox[2] - bbox[0]
-            label_x = text_center_x - label_w // 2
-            draw.text((label_x, current_y), label, fill=label_color, font=label_font)
-            
-            bbox = draw.textbbox((0, 0), text, font=data_font)
-            data_w = bbox[2] - bbox[0]
-            data_x = text_center_x - data_w // 2
-            draw.text((data_x, current_y + 35), text, fill=data_color, font=data_font)
-            current_y += line_spacing
+    img = template.render_image_slate(player, intro_image)
 
     slate_png = work / "slate.png"
     img.save(slate_png)
@@ -628,14 +461,19 @@ def make_slate_with_image(player: dict, out_path: pathlib.Path, work: pathlib.Pa
         str(out_path)
     ])
 
-def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Path, intro_video: pathlib.Path):
+def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Path,
+                          intro_video: pathlib.Path, template_name: str | None = None):
     """Create slate using intro video as background with text overlay."""
+    from slate_templates import get_template
+
+    template = get_template(template_name)
+    print(f"  Using slate template: {template.display_name}")
+
     temp_resized = work / "intro_resized.mp4"
-    temp_with_text = work / "intro_with_text.mp4"
-    
-    # First, resize intro video to 1920x1080 and ensure it's exactly 5 seconds
+
+    # Resize intro video to 1920x1080, exactly 5 seconds
     run([
-        "ffmpeg", "-y",
+        FFMPEG_CMD, "-y",
         "-i", str(intro_video),
         "-vf", f"scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps={FPS}",
         "-t", "5",
@@ -644,65 +482,15 @@ def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Pa
         "-an",
         str(temp_resized)
     ])
-    
-    # Create text overlay
-    name = (player.get("name") or "Player Name")
-    pos = (player.get("position") or "")
-    grad = str(player.get("grad_year") or "")
 
-    # Find font with cross-platform support (security: escape font paths)
+    # Get drawtext filters from the template
     font_bold = find_dejavu_font()
-    safe_font_bold = escape_drawtext(font_bold) if font_bold else ""
-    # For regular font, try to find regular variant, fallback to bold
     font_regular = font_bold.replace("-Bold", "") if font_bold and "-Bold" in font_bold else font_bold
-    safe_font_regular = escape_drawtext(font_regular) if font_regular else ""
+    filter_str = template.get_video_drawtext_filters(player, font_bold, font_regular)
 
-    # Escape text content for security
-    safe_name = escape_drawtext(name)
-
-    # Build filter for text overlay
-    text_filters = []
-
-    # Main name with background
-    name_y = "h*0.75"
-    pos_y = "h*0.82"
-    name_filter_parts = [
-        f"drawtext=text='{safe_name}'",
-        f"fontsize=64",
-        f"fontcolor=white",
-        f"x=(w-text_w)/2",
-        f"y={name_y}",
-        f"box=1",
-        f"boxcolor=black@0.7",
-        f"boxborderw=10"
-    ]
-    if safe_font_bold:
-        name_filter_parts.insert(1, f"fontfile={safe_font_bold}")
-    text_filters.append(":".join(name_filter_parts))
-
-    # Position and grad year
-    if pos or grad:
-        pos_line = pos + (f"  •  Class of {grad}" if grad else "")
-        safe_pos_line = escape_drawtext(pos_line)
-        pos_filter_parts = [
-            f"drawtext=text='{safe_pos_line}'",
-            f"fontsize=40",
-            f"fontcolor=white",
-            f"x=(w-text_w)/2",
-            f"y={pos_y}",
-            f"box=1",
-            f"boxcolor=black@0.7",
-            f"boxborderw=8"
-        ]
-        if safe_font_regular:
-            pos_filter_parts.insert(1, f"fontfile={safe_font_regular}")
-        text_filters.append(":".join(pos_filter_parts))
-    
-    filter_str = ",".join(text_filters)
-    
     # Apply text overlay
     run([
-        "ffmpeg", "-y",
+        FFMPEG_CMD, "-y",
         "-i", str(temp_resized),
         "-vf", filter_str,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF),
@@ -710,7 +498,7 @@ def make_slate_with_video(player: dict, out_path: pathlib.Path, work: pathlib.Pa
         "-an",
         str(out_path)
     ])
-    
+
     # Clean up temp file
     temp_resized.unlink(missing_ok=True)
 
@@ -979,6 +767,8 @@ def main():
     ap.add_argument("--dir", type=str, help="Full path to athlete or project folder")
     ap.add_argument("--keep-work", action="store_true")
     ap.add_argument("--reset-intro", action="store_true", help="Reset intro media selection and choose again")
+    ap.add_argument("--slate-template", type=str, default=None,
+                    help="Slate template name (classic, modern, bold, cinematic, clean)")
     args = ap.parse_args()
 
     athlete_dir = None
@@ -1190,7 +980,9 @@ def main():
                 print(f"Warning: Intro media file not found: {intro_media}")
                 intro_media = None
 
-        make_slate(data.get("player", {}), slate, work, intro_media)
+        # Determine slate template: CLI override > project.json > default
+        slate_template = args.slate_template or data.get("slate_template")
+        make_slate(data.get("player", {}), slate, work, intro_media, template_name=slate_template)
         outputs = [slate, body]
 
     final = output / "final.mp4"
