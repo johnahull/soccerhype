@@ -79,6 +79,8 @@ def _extract_video_frame(video_path: pathlib.Path) -> pathlib.Path | None:
             return tmp
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
+    # Clean up temp file on failure
+    tmp.unlink(missing_ok=True)
     return None
 
 
