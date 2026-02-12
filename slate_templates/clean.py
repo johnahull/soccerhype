@@ -136,15 +136,15 @@ class CleanTemplate(SlateTemplate):
 
         filters: list[str] = []
 
-        # Title (above name)
+        # Title (above name) – matches image (name_x, divider_y-150) = (140, 228)
         if p["title"]:
             safe_title = escape_drawtext(p["title"])
             parts = [
                 f"drawtext=text='{safe_title}'",
                 f"fontsize=28",
                 f"fontcolor=#cccccc",
-                f"x=(w-text_w)/2",
-                f"y=h*0.20",
+                f"x=140",
+                f"y=228",
                 f"box=1",
                 f"boxcolor=black@0.55",
                 f"boxborderw=6",
@@ -153,13 +153,13 @@ class CleanTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={sfr}")
             filters.append(":".join(parts))
 
-        # Name – centred upper third
+        # Name – matches image (140, divider_y-110) = (140, 268)
         parts = [
             f"drawtext=text='{safe_name}'",
             f"fontsize=60",
             f"fontcolor=white",
-            f"x=(w-text_w)/2",
-            f"y=h*0.28",
+            f"x=140",
+            f"y=268",
             f"box=1",
             f"boxcolor=black@0.55",
             f"boxborderw=12",
@@ -168,15 +168,15 @@ class CleanTemplate(SlateTemplate):
             parts.insert(1, f"fontfile={sfb}")
         filters.append(":".join(parts))
 
-        # Position
+        # Position – matches image (140, divider_y-110+70) = (140, 338)
         if p["position"]:
             safe_pos = escape_drawtext(p["position"].upper())
             parts = [
                 f"drawtext=text='{safe_pos}'",
-                f"fontsize=36",
+                f"fontsize=32",
                 f"fontcolor=#2980b9",
-                f"x=(w-text_w)/2",
-                f"y=h*0.38",
+                f"x=140",
+                f"y=338",
                 f"box=1",
                 f"boxcolor=black@0.55",
                 f"boxborderw=8",
@@ -185,22 +185,48 @@ class CleanTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={sfb}")
             filters.append(":".join(parts))
 
-        # Stats line: grad year · club
-        info_parts = []
+        # Stats line 1 – matches image grid_y = divider_y+50 = 428
+        line1_parts = []
         if p["grad_year"]:
-            info_parts.append(f"Class of {p['grad_year']}")
+            line1_parts.append(f"Class of {p['grad_year']}")
         if p["club_team"]:
-            info_parts.append(p["club_team"])
+            line1_parts.append(p["club_team"])
         if p["high_school"]:
-            info_parts.append(p["high_school"])
-        if info_parts:
-            safe_info = escape_drawtext("  ·  ".join(info_parts))
+            line1_parts.append(p["high_school"])
+        if line1_parts:
+            safe_line1 = escape_drawtext("  ·  ".join(line1_parts))
             parts = [
-                f"drawtext=text='{safe_info}'",
+                f"drawtext=text='{safe_line1}'",
                 f"fontsize=28",
                 f"fontcolor=#eeeeee",
-                f"x=(w-text_w)/2",
-                f"y=h*0.80",
+                f"x=140",
+                f"y=428",
+                f"box=1",
+                f"boxcolor=black@0.55",
+                f"boxborderw=8",
+            ]
+            if sfr:
+                parts.insert(1, f"fontfile={sfr}")
+            filters.append(":".join(parts))
+
+        # Stats line 2 – matches image grid row 2 = 428+85 = 513
+        line2_parts = []
+        if p["height_weight"]:
+            line2_parts.append(p["height_weight"])
+        if p["gpa"]:
+            line2_parts.append(f"GPA {p['gpa']}")
+        if p["email"]:
+            line2_parts.append(p["email"].lower())
+        if p["phone"]:
+            line2_parts.append(p["phone"])
+        if line2_parts:
+            safe_line2 = escape_drawtext("  ·  ".join(line2_parts))
+            parts = [
+                f"drawtext=text='{safe_line2}'",
+                f"fontsize=28",
+                f"fontcolor=#cccccc",
+                f"x=140",
+                f"y=513",
                 f"box=1",
                 f"boxcolor=black@0.55",
                 f"boxborderw=8",

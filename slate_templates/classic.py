@@ -188,7 +188,7 @@ class ClassicTemplate(SlateTemplate):
 
         filters: list[str] = []
 
-        # Title (above name)
+        # Title (above name) – matches image no-photo y=190
         if p["title"]:
             safe_title = escape_drawtext(p["title"])
             parts = [
@@ -196,7 +196,7 @@ class ClassicTemplate(SlateTemplate):
                 f"fontsize=72",
                 f"fontcolor=#ffd700",
                 f"x=(w-text_w)/2",
-                f"y=h*0.65",
+                f"y=190",
                 f"box=1",
                 f"boxcolor=black@0.7",
                 f"boxborderw=10",
@@ -205,13 +205,13 @@ class ClassicTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={safe_font_bold}")
             filters.append(":".join(parts))
 
-        # Main name
+        # Main name – matches image no-photo y=270
         parts = [
             f"drawtext=text='{safe_name}'",
-            f"fontsize=64",
+            f"fontsize=52",
             f"fontcolor=white",
             f"x=(w-text_w)/2",
-            f"y=h*0.75",
+            f"y=270",
             f"box=1",
             f"boxcolor=black@0.7",
             f"boxborderw=10",
@@ -220,7 +220,7 @@ class ClassicTemplate(SlateTemplate):
             parts.insert(1, f"fontfile={safe_font_bold}")
         filters.append(":".join(parts))
 
-        # Position + grad year
+        # Position + grad year – matches image no-photo stats start y=370
         if p["position"] or p["grad_year"]:
             pos_line = p["position"] + (f"  •  Class of {p['grad_year']}" if p["grad_year"] else "")
             safe_pos = escape_drawtext(pos_line)
@@ -229,7 +229,7 @@ class ClassicTemplate(SlateTemplate):
                 f"fontsize=40",
                 f"fontcolor=white",
                 f"x=(w-text_w)/2",
-                f"y=h*0.82",
+                f"y=370",
                 f"box=1",
                 f"boxcolor=black@0.7",
                 f"boxborderw=8",

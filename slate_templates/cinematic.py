@@ -167,7 +167,7 @@ class CinematicTemplate(SlateTemplate):
 
         filters: list[str] = []
 
-        # Title
+        # Title – matches image ~y=640 (h-440)
         if p["title"]:
             safe_title = escape_drawtext(p["title"])
             parts = [
@@ -175,7 +175,7 @@ class CinematicTemplate(SlateTemplate):
                 f"fontsize=32",
                 f"fontcolor=#a09b91",
                 f"x=120",
-                f"y=h-340",
+                f"y=h-440",
                 f"box=1",
                 f"boxcolor=black@0.4",
                 f"boxborderw=6",
@@ -184,13 +184,13 @@ class CinematicTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={sfb}")
             filters.append(":".join(parts))
 
-        # Bottom-left name
+        # Bottom-left name – matches image ~y=685 (h-395)
         parts = [
             f"drawtext=text='{safe_name}'",
             f"fontsize=64",
             f"fontcolor=#f0e6d7",
             f"x=120",
-            f"y=h-290",
+            f"y=h-395",
             f"box=1",
             f"boxcolor=black@0.5",
             f"boxborderw=10",
@@ -199,7 +199,7 @@ class CinematicTemplate(SlateTemplate):
             parts.insert(1, f"fontfile={sfb}")
         filters.append(":".join(parts))
 
-        # Position + grad year
+        # Position + grad year – matches image ~y=765 (h-315)
         sub_parts = []
         if p["position"]:
             sub_parts.append(p["position"].upper())
@@ -209,10 +209,10 @@ class CinematicTemplate(SlateTemplate):
             safe_sub = escape_drawtext("  |  ".join(sub_parts))
             parts = [
                 f"drawtext=text='{safe_sub}'",
-                f"fontsize=36",
+                f"fontsize=28",
                 f"fontcolor=#a09b91",
                 f"x=120",
-                f"y=h-210",
+                f"y=h-315",
                 f"box=1",
                 f"boxcolor=black@0.4",
                 f"boxborderw=8",
@@ -221,28 +221,64 @@ class CinematicTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={sfr}")
             filters.append(":".join(parts))
 
-        # Detail line: club · school · height/weight · gpa · contact
-        detail_parts = []
+        # Detail line 1: club · school – matches image ~y=805 (h-275)
+        detail1_parts = []
         if p["club_team"]:
-            detail_parts.append(p["club_team"])
+            detail1_parts.append(p["club_team"])
         if p["high_school"]:
-            detail_parts.append(p["high_school"])
-        if p["height_weight"]:
-            detail_parts.append(p["height_weight"])
-        if p["gpa"]:
-            detail_parts.append(f"GPA {p['gpa']}")
-        if p["email"]:
-            detail_parts.append(p["email"].lower())
-        if p["phone"]:
-            detail_parts.append(p["phone"])
-        if detail_parts:
-            safe_detail = escape_drawtext("  ·  ".join(detail_parts))
+            detail1_parts.append(p["high_school"])
+        if detail1_parts:
+            safe_d1 = escape_drawtext("  ·  ".join(detail1_parts))
             parts = [
-                f"drawtext=text='{safe_detail}'",
+                f"drawtext=text='{safe_d1}'",
                 f"fontsize=22",
                 f"fontcolor=#a09b91",
                 f"x=120",
-                f"y=h-155",
+                f"y=h-275",
+                f"box=1",
+                f"boxcolor=black@0.4",
+                f"boxborderw=6",
+            ]
+            if sfr:
+                parts.insert(1, f"fontfile={sfr}")
+            filters.append(":".join(parts))
+
+        # Detail line 2: height/weight · gpa – matches image ~y=837 (h-243)
+        detail2_parts = []
+        if p["height_weight"]:
+            detail2_parts.append(p["height_weight"])
+        if p["gpa"]:
+            detail2_parts.append(f"GPA {p['gpa']}")
+        if detail2_parts:
+            safe_d2 = escape_drawtext("  ·  ".join(detail2_parts))
+            parts = [
+                f"drawtext=text='{safe_d2}'",
+                f"fontsize=22",
+                f"fontcolor=#a09b91",
+                f"x=120",
+                f"y=h-243",
+                f"box=1",
+                f"boxcolor=black@0.4",
+                f"boxborderw=6",
+            ]
+            if sfr:
+                parts.insert(1, f"fontfile={sfr}")
+            filters.append(":".join(parts))
+
+        # Detail line 3: email · phone – matches image ~y=869 (h-211)
+        detail3_parts = []
+        if p["email"]:
+            detail3_parts.append(p["email"].lower())
+        if p["phone"]:
+            detail3_parts.append(p["phone"])
+        if detail3_parts:
+            safe_d3 = escape_drawtext("  ·  ".join(detail3_parts))
+            parts = [
+                f"drawtext=text='{safe_d3}'",
+                f"fontsize=22",
+                f"fontcolor=#a09b91",
+                f"x=120",
+                f"y=h-211",
                 f"box=1",
                 f"boxcolor=black@0.4",
                 f"boxborderw=6",

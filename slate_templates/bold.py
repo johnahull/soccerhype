@@ -130,7 +130,7 @@ class BoldTemplate(SlateTemplate):
 
         filters: list[str] = []
 
-        # Title above name
+        # Title above name – matches image center_y-70 = 370
         if p["title"]:
             safe_title = escape_drawtext(p["title"].upper())
             parts = [
@@ -138,7 +138,7 @@ class BoldTemplate(SlateTemplate):
                 f"fontsize=44",
                 f"fontcolor=#daa520",
                 f"x=(w-text_w)/2",
-                f"y=(h-text_h)/2-120",
+                f"y=370",
                 f"box=1",
                 f"boxcolor=black@0.5",
                 f"boxborderw=10",
@@ -147,13 +147,13 @@ class BoldTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={sfb}")
             filters.append(":".join(parts))
 
-        # Big centred name
+        # Big centred name – matches image center_y = 440
         parts = [
             f"drawtext=text='{safe_name}'",
             f"fontsize=96",
             f"fontcolor=white",
             f"x=(w-text_w)/2",
-            f"y=(h-text_h)/2-40",
+            f"y=440",
             f"box=1",
             f"boxcolor=black@0.5",
             f"boxborderw=15",
@@ -162,7 +162,7 @@ class BoldTemplate(SlateTemplate):
             parts.insert(1, f"fontfile={sfb}")
         filters.append(":".join(parts))
 
-        # Position in gold
+        # Position in gold – matches image center_y+130 = 570
         if p["position"]:
             safe_pos = escape_drawtext(p["position"].upper())
             parts = [
@@ -170,7 +170,7 @@ class BoldTemplate(SlateTemplate):
                 f"fontsize=48",
                 f"fontcolor=#daa520",
                 f"x=(w-text_w)/2",
-                f"y=(h)/2+40",
+                f"y=570",
                 f"box=1",
                 f"boxcolor=black@0.5",
                 f"boxborderw=10",
@@ -179,7 +179,7 @@ class BoldTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={sfb}")
             filters.append(":".join(parts))
 
-        # Footer line 1: grad year · club · high school
+        # Footer line 1 – matches image H-120 = 960
         line1_parts = []
         if p["grad_year"]:
             line1_parts.append(f"Class of {p['grad_year']}")
@@ -194,7 +194,7 @@ class BoldTemplate(SlateTemplate):
                 f"fontsize=28",
                 f"fontcolor=#cccccc",
                 f"x=(w-text_w)/2",
-                f"y=h-130",
+                f"y=h-120",
                 f"box=1",
                 f"boxcolor=black@0.5",
                 f"boxborderw=8",
@@ -203,7 +203,7 @@ class BoldTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={sfr}")
             filters.append(":".join(parts))
 
-        # Footer line 2: height/weight · gpa · email · phone
+        # Footer line 2 – matches image H-80 = 1000
         line2_parts = []
         if p["height_weight"]:
             line2_parts.append(p["height_weight"])
@@ -217,10 +217,10 @@ class BoldTemplate(SlateTemplate):
             safe_line2 = escape_drawtext("  ·  ".join(line2_parts))
             parts = [
                 f"drawtext=text='{safe_line2}'",
-                f"fontsize=24",
+                f"fontsize=28",
                 f"fontcolor=#aaaaaa",
                 f"x=(w-text_w)/2",
-                f"y=h-85",
+                f"y=h-80",
                 f"box=1",
                 f"boxcolor=black@0.5",
                 f"boxborderw=6",

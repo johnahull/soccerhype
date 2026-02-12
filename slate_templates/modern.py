@@ -173,15 +173,15 @@ class ModernTemplate(SlateTemplate):
 
         filters: list[str] = []
 
-        # Title (above name)
+        # Title (above name) – matches image text_x=120, y=140
         if p["title"]:
             safe_title = escape_drawtext(p["title"])
             parts = [
                 f"drawtext=text='{safe_title}'",
                 f"fontsize=36",
                 f"fontcolor=#daa520",
-                f"x=80",
-                f"y=h*0.64",
+                f"x=120",
+                f"y=140",
                 f"box=1",
                 f"boxcolor=black@0.6",
                 f"boxborderw=8",
@@ -190,13 +190,13 @@ class ModernTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={sfb}")
             filters.append(":".join(parts))
 
-        # Name – bottom left with accent-colored underline effect via box
+        # Name – matches image y=190
         parts = [
             f"drawtext=text='{safe_name}'",
-            f"fontsize=64",
+            f"fontsize=56",
             f"fontcolor=white",
-            f"x=80",
-            f"y=h*0.72",
+            f"x=120",
+            f"y=190",
             f"box=1",
             f"boxcolor=black@0.6",
             f"boxborderw=12",
@@ -205,15 +205,15 @@ class ModernTemplate(SlateTemplate):
             parts.insert(1, f"fontfile={sfb}")
         filters.append(":".join(parts))
 
-        # Position badge
+        # Position badge – matches image y=260
         if p["position"]:
             safe_pos = escape_drawtext(p["position"].upper())
             parts = [
                 f"drawtext=text='{safe_pos}'",
-                f"fontsize=32",
+                f"fontsize=26",
                 f"fontcolor=#1a1a2e",
-                f"x=80",
-                f"y=h*0.82",
+                f"x=120",
+                f"y=270",
                 f"box=1",
                 f"boxcolor=#daa520",
                 f"boxborderw=10",
@@ -222,15 +222,48 @@ class ModernTemplate(SlateTemplate):
                 parts.insert(1, f"fontfile={sfb}")
             filters.append(":".join(parts))
 
-        # Grad year
+        # Stats line 1 – matches image grid start y=340
+        line1_parts = []
         if p["grad_year"]:
-            safe_grad = escape_drawtext(f"Class of {p['grad_year']}")
+            line1_parts.append(f"Class of {p['grad_year']}")
+        if p["club_team"]:
+            line1_parts.append(p["club_team"])
+        if p["high_school"]:
+            line1_parts.append(p["high_school"])
+        if line1_parts:
+            safe_line1 = escape_drawtext("  ·  ".join(line1_parts))
             parts = [
-                f"drawtext=text='{safe_grad}'",
-                f"fontsize=36",
+                f"drawtext=text='{safe_line1}'",
+                f"fontsize=32",
                 f"fontcolor=white",
-                f"x=80+text_w+40" if p["position"] else f"x=80",
-                f"y=h*0.82",
+                f"x=120",
+                f"y=340",
+                f"box=1",
+                f"boxcolor=black@0.5",
+                f"boxborderw=8",
+            ]
+            if sfr:
+                parts.insert(1, f"fontfile={sfr}")
+            filters.append(":".join(parts))
+
+        # Stats line 2 – matches image grid row 2 y=430
+        line2_parts = []
+        if p["height_weight"]:
+            line2_parts.append(p["height_weight"])
+        if p["gpa"]:
+            line2_parts.append(f"GPA {p['gpa']}")
+        if p["email"]:
+            line2_parts.append(p["email"].lower())
+        if p["phone"]:
+            line2_parts.append(p["phone"])
+        if line2_parts:
+            safe_line2 = escape_drawtext("  ·  ".join(line2_parts))
+            parts = [
+                f"drawtext=text='{safe_line2}'",
+                f"fontsize=32",
+                f"fontcolor=#b4b4c8",
+                f"x=120",
+                f"y=430",
                 f"box=1",
                 f"boxcolor=black@0.5",
                 f"boxborderw=8",

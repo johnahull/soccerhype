@@ -57,6 +57,29 @@ except ImportError:
 ROOT = pathlib.Path.cwd()
 ATHLETES = ROOT / "athletes"
 
+_VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+
+
+def _extract_video_frame(video_path: pathlib.Path) -> pathlib.Path | None:
+    """Extract a single frame from a video for use as a slate preview image.
+
+    Returns path to a temporary PNG, or None on failure.
+    """
+    import tempfile
+    tmp = pathlib.Path(tempfile.mktemp(suffix=".png", prefix="slate_preview_"))
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", "1", "-i", str(video_path),
+             "-frames:v", "1", "-q:v", "2", str(tmp)],
+            capture_output=True, timeout=10,
+        )
+        if tmp.exists() and tmp.stat().st_size > 0:
+            return tmp
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
+
+
 class AthleteManager:
     """Handles athlete data and folder management"""
 
@@ -1295,8 +1318,9 @@ class SoccerHypeGUI:
                                    "Set a player profile first so previews can be rendered.")
             return
 
-        # Resolve intro image for previews
+        # Resolve intro media for previews
         intro_image = None
+        _temp_frame = None
         project_path = project_dir / "project.json"
         if project_path.exists():
             try:
@@ -1307,11 +1331,15 @@ class SoccerHypeGUI:
                         candidate = athlete_dir / media_rel
                     else:
                         candidate = project_dir / media_rel
-                    # Only use images, not videos, for the static preview
-                    if candidate.exists() and candidate.suffix.lower() in {
-                        ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"
-                    }:
-                        intro_image = candidate
+                    if candidate.exists():
+                        if candidate.suffix.lower() in {
+                            ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"
+                        }:
+                            intro_image = candidate
+                        elif candidate.suffix.lower() in _VIDEO_EXTS:
+                            _temp_frame = _extract_video_frame(candidate)
+                            if _temp_frame:
+                                intro_image = _temp_frame
             except (IOError, json.JSONDecodeError):
                 pass
 
@@ -1343,6 +1371,10 @@ class SoccerHypeGUI:
             else:
                 messagebox.showwarning("No Project",
                                        "No project.json found. Set up the project first.")
+
+        # Clean up temp frame extracted from video
+        if _temp_frame and _temp_frame.exists():
+            _temp_frame.unlink(missing_ok=True)
 
     def mark_plays(self):
         """Launch mark_play.py for selected project (directly from row)"""
@@ -1944,20 +1976,30 @@ class PlayerInfoDialog:
             "phone": self.phone_var.get().strip(),
         }
 
-        # Resolve intro image for preview
+        # Resolve intro media for preview
         intro_image = None
+        _temp_frame = None
         media_path_str = self.selected_media_var.get()
         if media_path_str:
             candidate = pathlib.Path(media_path_str)
-            if candidate.exists() and candidate.suffix.lower() in {
-                ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"
-            }:
-                intro_image = candidate
+            if candidate.exists():
+                if candidate.suffix.lower() in {
+                    ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"
+                }:
+                    intro_image = candidate
+                elif candidate.suffix.lower() in _VIDEO_EXTS:
+                    _temp_frame = _extract_video_frame(candidate)
+                    if _temp_frame:
+                        intro_image = _temp_frame
 
         result = SlateTemplateChooser.choose(
             self.dialog, player, intro_image,
             current=self.slate_template_var.get()
         )
+
+        # Clean up temp frame extracted from video
+        if _temp_frame and _temp_frame.exists():
+            _temp_frame.unlink(missing_ok=True)
 
         if result is not None:
             self.slate_template_var.set(result)
