@@ -196,7 +196,8 @@ class TestMainApplicationEntry(unittest.TestCase):
         if gui_file.exists():
             content = gui_file.read_text()
             self.assertIn('if __name__ == "__main__"', content)
-            self.assertIn('def main(', content)
+            # main() is imported from gui.main or defined locally
+            self.assertTrue('main()' in content or 'def main(' in content)
 
 
 class TestScriptValidation(unittest.TestCase):

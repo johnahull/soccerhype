@@ -10,6 +10,7 @@ tk
 
 # For debugging / development
 pytest==8.3.4
+mypy==1.8.0
 
 # For standalone application packaging
 pyinstaller>=5.0,<7.0

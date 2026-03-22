@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soccerhype"
+version = "0.1.0"
+description = "A Python + FFmpeg tool for creating professional athlete highlight videos"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "John Hull", email = "john@johnahull.com"},
+]
+keywords = ["video", "highlight", "athlete", "sports", "ffmpeg", "soccer"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "opencv-python>=4.8",
+    "pillow>=10.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "mypy>=1.8",
+    "pyinstaller>=5.0,<7.0",
+]
+
+[project.scripts]
+soccerhype = "gui.main:main"
+soccerhype-render = "render.core:main"
+soccerhype-mark = "mark_play:main"
+soccerhype-batch = "batch_render:main"
+
+[project.urls]
+Homepage = "https://github.com/johnahull/soccerhype"
+Repository = "https://github.com/johnahull/soccerhype"
+Issues = "https://github.com/johnahull/soccerhype/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

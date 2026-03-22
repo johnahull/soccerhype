@@ -47,17 +47,7 @@ python soccerhype_gui.py
 # Or use launcher: ./launch_soccerhype.sh
 ```
 
-**Enhanced Command Line Tools:**
-```bash
-# Enhanced marking with smart defaults and templates
-python mark_play_enhanced.py
-python mark_play_enhanced.py --template "soccer_player_template"
-
-# Enhanced clip reordering with thumbnail preview
-python reorder_clips_enhanced.py
-```
-
-**Standard Command Line Workflow:**
+**Command Line Workflow:**
 
 **1. Create athlete folder structure:**
 ```bash

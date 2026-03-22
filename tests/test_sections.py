@@ -15,7 +15,7 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from constants import SECTIONS, SECTION_COLORS, OVERLAY_DEFAULT_COLOR
-from render_highlight import escape_drawtext
+from render.utils import escape_drawtext
 
 
 class TestSectionConstants(unittest.TestCase):
