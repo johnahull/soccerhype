@@ -2918,6 +2918,7 @@ class ProfileManagementDialog:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="SoccerHype GUI - Unified highlight video creator")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args()
 
     try:

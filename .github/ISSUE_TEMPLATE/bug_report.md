@@ -82,7 +82,7 @@ Paste any error messages or relevant console output here
 - [ ] I have provided all requested environment information
 - [ ] I have included error messages or logs
 - [ ] I can reproduce this issue consistently
-- [ ] I have checked the [Troubleshooting](https://github.com/johnahull/highlight_tool#-troubleshooting) section
+- [ ] I have checked the [Troubleshooting](https://github.com/johnahull/soccerhype#-troubleshooting) section
 
 ## Workaround
 

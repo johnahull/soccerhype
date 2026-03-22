@@ -1,11 +1,11 @@
 blank_issues_enabled: true
 contact_links:
   - name: Question or Discussion
-    url: https://github.com/johnahull/highlight_tool/discussions
+    url: https://github.com/johnahull/soccerhype/discussions
     about: Ask questions or start discussions about SoccerHype
   - name: Security Vulnerability
-    url: https://github.com/johnahull/highlight_tool/security/advisories/new
+    url: https://github.com/johnahull/soccerhype/security/advisories/new
     about: Report security vulnerabilities privately (see SECURITY.md)
   - name: Documentation
-    url: https://github.com/johnahull/highlight_tool/blob/main/CLAUDE.md
+    url: https://github.com/johnahull/soccerhype/blob/main/CLAUDE.md
     about: View comprehensive developer documentation

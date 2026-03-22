@@ -77,8 +77,8 @@ A Python + FFmpeg tool for quickly creating professional athlete highlight video
 
 **Option 1: Automated Setup (Recommended)**
 ```bash
-git clone https://github.com/johnahull/highlight_tool.git
-cd highlight_tool
+git clone https://github.com/johnahull/soccerhype.git
+cd soccerhype
 ./setup.sh
 source .venv/bin/activate
 ```
@@ -90,8 +90,8 @@ sudo apt update
 sudo apt install ffmpeg python3-opencv python3-pil python3-tk fonts-dejavu-core
 
 # Clone repository
-git clone https://github.com/johnahull/highlight_tool.git
-cd highlight_tool
+git clone https://github.com/johnahull/soccerhype.git
+cd soccerhype
 
 # Setup Python environment
 python3 -m venv .venv
@@ -302,7 +302,7 @@ chmod 600 players_database.json
 
 ### Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/johnahull/highlight_tool/issues)
+- **Issues**: [GitHub Issues](https://github.com/johnahull/soccerhype/issues)
 - **Discussions**: Open a GitHub Discussion for questions
 - **Email**: john@johnahull.com
 
@@ -362,7 +362,7 @@ We welcome contributions! Whether it's bug fixes, new features, documentation im
 
 **Before contributing**, please:
 1. Read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
-2. Check existing [issues](https://github.com/johnahull/highlight_tool/issues) and [pull requests](https://github.com/johnahull/highlight_tool/pulls)
+2. Check existing [issues](https://github.com/johnahull/soccerhype/issues) and [pull requests](https://github.com/johnahull/soccerhype/pulls)
 3. Follow our [Code of Conduct](CODE_OF_CONDUCT.md)
 
 **Ways to contribute**:
@@ -389,7 +389,7 @@ We welcome contributions! Whether it's bug fixes, new features, documentation im
 **Project Maintainer**: John Hull
 **Email**: john@johnahull.com
 **GitHub**: [@johnahull](https://github.com/johnahull)
-**Repository**: https://github.com/johnahull/highlight_tool
+**Repository**: https://github.com/johnahull/soccerhype
 
 ---
 
@@ -397,6 +397,6 @@ We welcome contributions! Whether it's bug fixes, new features, documentation im
 
 **Made with ⚽ for athletes, parents, and coaches**
 
-[Report Bug](https://github.com/johnahull/highlight_tool/issues) · [Request Feature](https://github.com/johnahull/highlight_tool/issues) · [View Releases](https://github.com/johnahull/highlight_tool/releases)
+[Report Bug](https://github.com/johnahull/soccerhype/issues) · [Request Feature](https://github.com/johnahull/soccerhype/issues) · [View Releases](https://github.com/johnahull/soccerhype/releases)
 
 </div>

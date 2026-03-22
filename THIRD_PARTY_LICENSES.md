@@ -235,7 +235,7 @@ SoccerHype gratefully acknowledges the contributions of the open-source communit
 For license questions or concerns, please:
 - Review the full LICENSE file in this repository
 - Contact: john@johnahull.com
-- Open an issue: https://github.com/johnahull/highlight_tool/issues
+- Open an issue: https://github.com/johnahull/soccerhype/issues
 
 ---
 

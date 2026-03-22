@@ -61,8 +61,8 @@ We accept pull requests for:
 
 1. **Fork and clone the repository**:
    ```bash
-   git clone https://github.com/YOUR-USERNAME/highlight_tool.git
-   cd highlight_tool
+   git clone https://github.com/YOUR-USERNAME/soccerhype.git
+   cd soccerhype
    ```
 
 2. **Run the setup script**:
@@ -234,7 +234,7 @@ Your PR will be reviewed for:
 ## Project Structure
 
 ```
-highlight_tool/
+soccerhype/
 ├── athletes/              # Athlete project directories
 ├── tests/                 # Test files
 ├── .github/              # GitHub workflows and templates
@@ -259,7 +259,7 @@ highlight_tool/
 ## Getting Help
 
 - **Documentation**: Start with [CLAUDE.md](CLAUDE.md) for comprehensive technical details
-- **Issues**: Check [existing issues](https://github.com/johnahull/highlight_tool/issues) for known problems
+- **Issues**: Check [existing issues](https://github.com/johnahull/soccerhype/issues) for known problems
 - **Questions**: Open a GitHub issue with the "question" label
 - **Contact**: Email john@johnahull.com for private inquiries
 

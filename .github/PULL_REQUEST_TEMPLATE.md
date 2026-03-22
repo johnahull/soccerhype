@@ -55,14 +55,14 @@ Closes #
 ## Checklist
 
 ### Code Quality
-- [ ] My code follows the [coding standards](https://github.com/johnahull/highlight_tool/blob/main/CONTRIBUTING.md#coding-standards) of this project
+- [ ] My code follows the [coding standards](https://github.com/johnahull/soccerhype/blob/main/CONTRIBUTING.md#coding-standards) of this project
 - [ ] I have performed a self-review of my own code
 - [ ] I have commented my code, particularly in hard-to-understand areas
 - [ ] My changes generate no new warnings
 - [ ] I have removed any debug logging or commented-out code
 
 ### Security
-- [ ] I have followed [security best practices](https://github.com/johnahull/highlight_tool/blob/main/CONTRIBUTING.md#security-best-practices)
+- [ ] I have followed [security best practices](https://github.com/johnahull/soccerhype/blob/main/CONTRIBUTING.md#security-best-practices)
 - [ ] No PII (personally identifiable information) is included in commits
 - [ ] Input validation is implemented for any new user inputs
 - [ ] Subprocess calls use `shell=False` and proper argument lists
@@ -130,6 +130,6 @@ Closes #
 ---
 
 **By submitting this pull request, I confirm that:**
-- I have read and agree to the [Code of Conduct](https://github.com/johnahull/highlight_tool/blob/main/CODE_OF_CONDUCT.md)
+- I have read and agree to the [Code of Conduct](https://github.com/johnahull/soccerhype/blob/main/CODE_OF_CONDUCT.md)
 - My contribution is licensed under the MIT License
 - I grant permission for this contribution to be used in the project

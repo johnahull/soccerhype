@@ -164,6 +164,7 @@ def upgrade_to_v2_if_needed(athlete_dir: pathlib.Path) -> bool:
 
 
 def main():
+    from version import __version__
     parser = argparse.ArgumentParser(
         description="Create a new project under an existing athlete",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -174,6 +175,7 @@ Examples:
   python create_project.py  # Interactive mode (offers clone option)
         """
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--athlete", type=str, help="Athlete name")
     parser.add_argument("--project", type=str, help="New project name")
     parser.add_argument("--clone", type=str,

@@ -286,9 +286,11 @@ if __name__ == "__main__":
                     return projects[idx - 1]
             print("Invalid choice. Try again.")
 
+    from version import __version__
     ap = argparse.ArgumentParser(
         description="Sync clips_in/ folder with project.json"
     )
+    ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
     ap.add_argument("--project", type=str, help="Project name (for v2 multi-project athletes)")
     ap.add_argument("--dir", type=str, help="Full path to athlete or project folder")

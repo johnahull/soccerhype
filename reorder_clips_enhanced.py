@@ -564,7 +564,9 @@ def choose_athlete_interactive() -> Optional[pathlib.Path]:
 
 def main():
     """Main entry point"""
+    from version import __version__
     parser = argparse.ArgumentParser(description="Enhanced GUI to reorder clips with advanced video player")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
     parser.add_argument("--dir", type=str, help="Full path to athlete folder")
     args = parser.parse_args()

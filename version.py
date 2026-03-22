@@ -12,7 +12,7 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 # Release information
 RELEASE_DATE = "2025-01-10"
 PROJECT_NAME = "SoccerHype"
-PROJECT_URL = "https://github.com/johnahull/highlight_tool"
+PROJECT_URL = "https://github.com/johnahull/soccerhype"
 AUTHOR = "John Hull"
 AUTHOR_EMAIL = "john@johnahull.com"
 LICENSE = "MIT"

@@ -71,11 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Project Information
 
-**Repository**: https://github.com/johnahull/highlight_tool
+**Repository**: https://github.com/johnahull/soccerhype
 **License**: MIT License
 **Author**: John Hull
 
 ---
 
-[Unreleased]: https://github.com/johnahull/highlight_tool/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/johnahull/highlight_tool/releases/tag/v0.1.0
+[Unreleased]: https://github.com/johnahull/soccerhype/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/johnahull/soccerhype/releases/tag/v0.1.0

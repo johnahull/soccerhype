@@ -77,6 +77,7 @@ def create_v2_athlete(athlete_name: str, initial_project: str = None) -> pathlib
 
 
 def main():
+    from version import __version__
     parser = argparse.ArgumentParser(
         description="Create athlete folder structure",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -87,6 +88,7 @@ Examples:
   python create_athlete.py "Jane Doe" --legacy
         """
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("name", nargs="?", help="Athlete name")
     parser.add_argument("--legacy", action="store_true",
                        help="Create v1 (legacy) structure instead of v2")

@@ -685,7 +685,9 @@ def mark_on_proxy_enhanced(orig_path: pathlib.Path, proxy_path: pathlib.Path,
             return result
 
 def main():
+    from version import __version__
     ap = argparse.ArgumentParser(description="Enhanced play marking with smart features")
+    ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
     ap.add_argument("--dir", type=str, help="Full path to athlete folder")
     ap.add_argument("--template", type=str, help="Player template to use")

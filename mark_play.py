@@ -489,7 +489,9 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
             }
 
 def main():
+    from version import __version__
     ap = argparse.ArgumentParser()
+    ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--athlete", type=str, help="Athlete folder name under ./athletes")
     ap.add_argument("--project", type=str, help="Project name (for v2 multi-project athletes)")
     ap.add_argument("--dir", type=str, help="Full path to athlete or project folder")

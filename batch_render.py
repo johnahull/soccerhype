@@ -85,7 +85,9 @@ def render_one(project_dir: pathlib.Path, display_name: str, keep_work: bool, py
     return (display_name, proc.returncode)
 
 def main():
+    from version import __version__
     ap = argparse.ArgumentParser(description="Batch render all/selected athletes and projects.")
+    ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--names", nargs="*", help="Specific athlete folder names under ./athletes")
     ap.add_argument("--jobs", type=int, default=1, help="Parallel renders (default 1)")
     ap.add_argument("--keep-work", action="store_true", help="Keep intermediates")
