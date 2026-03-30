@@ -20,7 +20,7 @@ from utils.structure import (
 )
 from gui.utils import ATHLETES, _VIDEO_EXTS, _extract_video_frame, ERROR_HANDLING_AVAILABLE
 from gui.athletes import AthleteManager
-from gui.dialogs import ProgressDialog, ProjectSelectionDialog, PlayerInfoDialog
+from gui.dialogs import ProgressDialog, ProjectSelectionDialog, PlayerInfoDialog, QuickStartWizard
 from gui.batch import BatchOperationsDialog
 from gui.profiles import ProfileManagementDialog
 
@@ -85,6 +85,8 @@ class SoccerHypeGUI:
                  font=("Segoe UI", 10)).pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Refresh", command=self.refresh_athletes,
                  font=("Segoe UI", 10)).pack(side='left', padx=(0, 10))
+        tk.Button(button_frame, text="Quick Start", command=self.quick_start_wizard,
+                 font=("Segoe UI", 10, "bold"), bg="#2196F3", fg="white").pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Batch Operations", command=self.batch_operations,
                  font=("Segoe UI", 10)).pack(side='right')
 
@@ -814,6 +816,9 @@ class SoccerHypeGUI:
 
     def manage_player_profiles(self):
         ProfileManagementDialog(self.root)
+
+    def quick_start_wizard(self):
+        QuickStartWizard(self.root, self)
 
     def show_about(self):
         messagebox.showinfo("About SoccerHype",
