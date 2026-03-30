@@ -64,6 +64,7 @@ import json
 import pathlib
 import subprocess
 import sys
+import time
 from typing import List, Dict, Any, Optional
 
 # Import FFmpeg utilities for bundled binary detection
@@ -227,6 +228,54 @@ def draw_hud(frame, t, fps, frame_idx, total_frames, rate, paused,
     cv2.addWeighted(overlay, 1.0, frame, 0.0, 0, frame)
     return frame
 
+
+HELP_LINES = [
+    "Space: Play/Pause",
+    "Click: Set ring position",
+    "+/-: Ring size",
+    "s: Set spotlight frame",
+    "a/b: Trim start/end",
+    "Enter: Accept clip",
+    "q/Esc: Skip clip",
+    "h: Toggle this help",
+]
+
+
+def draw_help_overlay(frame, disp_w, disp_h):
+    """Draw a semi-transparent help HUD in the top-right corner."""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.55
+    thickness = 1
+    line_height = 26
+    padding = 12
+
+    # Measure text to compute box size
+    max_text_w = 0
+    for line in HELP_LINES:
+        (tw, _), _ = cv2.getTextSize(line, font, font_scale, thickness)
+        max_text_w = max(max_text_w, tw)
+
+    box_w = max_text_w + padding * 2
+    box_h = len(HELP_LINES) * line_height + padding * 2
+    margin = 10
+    x1 = disp_w - box_w - margin
+    y1 = margin
+    x2 = disp_w - margin
+    y2 = y1 + box_h
+
+    # Semi-transparent dark background
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+
+    # Draw text lines
+    for i, line in enumerate(HELP_LINES):
+        ty = y1 + padding + (i + 1) * line_height - 6
+        cv2.putText(frame, line, (x1 + padding, ty), font, font_scale,
+                    (220, 220, 220), thickness, cv2.LINE_AA)
+
+    return frame
+
 def find_intro_files(intro_dir: pathlib.Path) -> dict:
     """Find image and video files in the intro directory."""
     if not intro_dir.exists():
@@ -315,6 +364,8 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
     start_trim = 0.0
     end_trim = 0.0
     zoom = 1.0
+    show_help = True
+    help_show_time = time.monotonic()
 
     def on_mouse(event, x, y, flags, param):
         nonlocal marker, radius
@@ -385,6 +436,13 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
                         rate_options[rate_idx], not playing,
                         radius_disp, start_trim, end_trim,
                         spot_time, spot_frame_std, marker_disp, zoom)
+
+        # Auto-hide help after 5 seconds
+        if show_help and (time.monotonic() - help_show_time) > 5.0:
+            show_help = False
+        if show_help:
+            disp = draw_help_overlay(disp, disp_w, disp_h)
+
         cv2.imshow(win, disp)
 
         if playing:
@@ -451,6 +509,10 @@ def mark_on_proxy(orig_path: pathlib.Path, proxy_path: pathlib.Path, clip_index:
         elif key == ord('0'):  # Reset zoom
             zoom = 1.0
             print("zoom reset to 1.0x")
+        elif key == ord('h'):
+            show_help = not show_help
+            if show_help:
+                help_show_time = time.monotonic()  # reset auto-hide timer
         elif key in (ord('r'), ord('R')):
             marker = (w//2, h//2); radius = 72
             start_trim = 0.0; end_trim = 0.0
