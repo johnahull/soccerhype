@@ -250,26 +250,20 @@ class SoccerHypeGUI:
         """Create a small gray placeholder PhotoImage (80x60)."""
         if self._placeholder_image is not None:
             return self._placeholder_image
-        # Create a simple gray PGM image in-memory via PPM header
+        import base64
         w, h = 80, 60
-        # P6 PPM: simple gray fill
         pixels = bytes([180, 180, 180]) * (w * h)
         header = f"P6\n{w} {h}\n255\n".encode()
-        import io
-        self._placeholder_image = tk.PhotoImage(data=header + pixels)
+        self._placeholder_image = tk.PhotoImage(data=base64.b64encode(header + pixels).decode("ascii"))
         return self._placeholder_image
 
     def _get_thumbnail_path(self, project_dir: pathlib.Path) -> pathlib.Path:
         """Return the cached thumbnail path for a project."""
-        work_dir = project_dir / "work"
-        work_dir.mkdir(exist_ok=True)
-        return work_dir / "thumb_preview.png"
+        return project_dir / "work" / "thumb_preview.png"
 
     def _generate_thumbnail(self, project_dir: pathlib.Path) -> Optional[pathlib.Path]:
         """Extract a frame from the first clip and save as a small PNG thumbnail."""
         thumb_path = self._get_thumbnail_path(project_dir)
-        if thumb_path.exists() and thumb_path.stat().st_size > 0:
-            return thumb_path
 
         clips_in = project_dir / "clips_in"
         if not clips_in.exists():
@@ -279,6 +273,11 @@ class SoccerHypeGUI:
         clips = sorted(f for f in clips_in.iterdir() if f.suffix.lower() in video_exts)
         if not clips:
             return None
+
+        # Use cached thumbnail if it's newer than the first clip
+        if thumb_path.exists() and thumb_path.stat().st_size > 0:
+            if thumb_path.stat().st_mtime >= clips[0].stat().st_mtime:
+                return thumb_path
 
         try:
             thumb_path.parent.mkdir(parents=True, exist_ok=True)
@@ -338,7 +337,7 @@ class SoccerHypeGUI:
                 else:
                     placeholder = self._get_placeholder_image()
                     self.athlete_tree.item(row_id, image=placeholder)
-            except (tk.TclError, Exception):
+            except Exception:
                 pass
 
     def get_selected_athlete(self) -> Optional[pathlib.Path]:

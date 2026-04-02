@@ -276,6 +276,7 @@ def draw_help_overlay(frame, disp_w, disp_h):
 
     return frame
 
+
 def find_intro_files(intro_dir: pathlib.Path) -> dict:
     """Find image and video files in the intro directory."""
     if not intro_dir.exists():

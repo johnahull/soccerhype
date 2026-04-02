@@ -1053,11 +1053,14 @@ class QuickStartWizard:
         if not self.project_dir:
             return False, "No project selected yet. Go back to Step 1."
         clips_in = self.project_dir / "clips_in"
-        if clips_in.exists():
-            clips = [f for f in clips_in.iterdir() if f.suffix.lower() in _VIDEO_EXTS]
-            if clips:
-                return True, f"\u2713 {len(clips)} clip(s) found in clips_in/"
-        return False, f"No clips in clips_in/. Click 'Open Folder' to add videos."
+        try:
+            if clips_in.exists():
+                clips = [f for f in clips_in.iterdir() if f.suffix.lower() in _VIDEO_EXTS]
+                if clips:
+                    return True, f"\u2713 {len(clips)} clip(s) found in clips_in/"
+        except OSError:
+            pass
+        return False, "No clips in clips_in/. Click 'Open Folder' to add videos."
 
     def _check_order(self):
         if not self.project_dir:
@@ -1072,10 +1075,13 @@ class QuickStartWizard:
             except (IOError, json.JSONDecodeError):
                 pass
         clips_in = self.project_dir / "clips_in"
-        if clips_in.exists() and any(
-            f.suffix.lower() in _VIDEO_EXTS for f in clips_in.iterdir()
-        ):
-            return True, "Clips found. You can order them or proceed to marking."
+        try:
+            if clips_in.exists() and any(
+                f.suffix.lower() in _VIDEO_EXTS for f in clips_in.iterdir()
+            ):
+                return True, "Clips found. You can order them or proceed to marking."
+        except OSError:
+            pass
         return False, "Add clips first (Step 2)."
 
     def _check_marks(self):
@@ -1107,10 +1113,12 @@ class QuickStartWizard:
     # ── Actions ─────────────────────────────────────────────────────────
 
     def _action_new_athlete(self):
+        before = set(self.gui.athlete_manager.discover_athletes())
         self.gui.new_athlete()
-        athletes = self.gui.athlete_manager.discover_athletes()
-        if athletes:
-            self.athlete_dir = athletes[-1]
+        after = set(self.gui.athlete_manager.discover_athletes())
+        new = after - before
+        if new:
+            self.athlete_dir = next(iter(new))
             projects = self.gui.athlete_manager.discover_projects(self.athlete_dir)
             if projects:
                 self.project_dir = projects[0]
