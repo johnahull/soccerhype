@@ -20,7 +20,7 @@ from utils.structure import (
 )
 from gui.utils import ATHLETES, _VIDEO_EXTS, _extract_video_frame, ERROR_HANDLING_AVAILABLE
 from gui.athletes import AthleteManager
-from gui.dialogs import ProgressDialog, ProjectSelectionDialog, PlayerInfoDialog
+from gui.dialogs import ProgressDialog, ProjectSelectionDialog, PlayerInfoDialog, QuickStartWizard
 from gui.batch import BatchOperationsDialog
 from gui.profiles import ProfileManagementDialog
 
@@ -85,6 +85,8 @@ class SoccerHypeGUI:
                  font=("Segoe UI", 10)).pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Refresh", command=self.refresh_athletes,
                  font=("Segoe UI", 10)).pack(side='left', padx=(0, 10))
+        tk.Button(button_frame, text="Quick Start", command=self.quick_start_wizard,
+                 font=("Segoe UI", 10, "bold"), bg="#2196F3", fg="white").pack(side='left', padx=(0, 10))
         tk.Button(button_frame, text="Batch Operations", command=self.batch_operations,
                  font=("Segoe UI", 10)).pack(side='right')
 
@@ -94,7 +96,11 @@ class SoccerHypeGUI:
         tk.Label(list_frame, text="Projects", font=("Segoe UI", 12, "bold")).pack(anchor='w')
 
         columns = ("Athlete", "Project", "Status", "Clips", "Marked", "Rendered")
-        self.athlete_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=15)
+        self.athlete_tree = ttk.Treeview(list_frame, columns=columns, show='tree headings', height=15)
+
+        # Tree column (#0) holds the thumbnail image
+        self.athlete_tree.heading("#0", text="")
+        self.athlete_tree.column("#0", width=90, minwidth=90, stretch=False)
 
         self.athlete_tree.heading("Athlete", text="Athlete")
         self.athlete_tree.heading("Project", text="Project")
@@ -109,6 +115,10 @@ class SoccerHypeGUI:
         self.athlete_tree.column("Clips", width=60, anchor='center')
         self.athlete_tree.column("Marked", width=80, anchor='center')
         self.athlete_tree.column("Rendered", width=70, anchor='center')
+
+        # Keep references to PhotoImage objects so they aren't garbage-collected
+        self._thumbnail_images: dict[str, tk.PhotoImage] = {}
+        self._placeholder_image: Optional[tk.PhotoImage] = None
 
         scrollbar = ttk.Scrollbar(list_frame, orient='vertical', command=self.athlete_tree.yview)
         self.athlete_tree.configure(yscrollcommand=scrollbar.set)
@@ -231,6 +241,104 @@ class SoccerHypeGUI:
         if not any_projects:
             self.athlete_tree.insert("", 'end', iid="_empty_",
                                     values=("(No projects)", "Click 'New Athlete' to get started", "", "", "", ""))
+            return
+
+        # Load thumbnails in background
+        self._load_thumbnails_async()
+
+    def _get_placeholder_image(self) -> tk.PhotoImage:
+        """Create a small gray placeholder PhotoImage (80x60)."""
+        if self._placeholder_image is not None:
+            return self._placeholder_image
+        import base64
+        w, h = 80, 60
+        pixels = bytes([180, 180, 180]) * (w * h)
+        header = f"P6\n{w} {h}\n255\n".encode()
+        self._placeholder_image = tk.PhotoImage(data=base64.b64encode(header + pixels).decode("ascii"))
+        return self._placeholder_image
+
+    def _get_thumbnail_path(self, project_dir: pathlib.Path) -> pathlib.Path:
+        """Return the cached thumbnail path for a project."""
+        return project_dir / "work" / "thumb_preview.png"
+
+    def _generate_thumbnail(self, project_dir: pathlib.Path) -> Optional[pathlib.Path]:
+        """Extract a frame from the first clip and save as a small PNG thumbnail."""
+        thumb_path = self._get_thumbnail_path(project_dir)
+
+        clips_in = project_dir / "clips_in"
+        if not clips_in.exists():
+            return None
+
+        video_exts = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm"}
+        clips = sorted(f for f in clips_in.iterdir() if f.suffix.lower() in video_exts)
+        if not clips:
+            return None
+
+        # Use cached thumbnail if it's newer than the first clip
+        if thumb_path.exists() and thumb_path.stat().st_size > 0:
+            if thumb_path.stat().st_mtime >= clips[0].stat().st_mtime:
+                return thumb_path
+
+        try:
+            thumb_path.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", "1", "-i", str(clips[0]),
+                 "-frames:v", "1", "-vf", "scale=80:60:force_original_aspect_ratio=decrease,pad=80:60:(ow-iw)/2:(oh-ih)/2:color=gray",
+                 str(thumb_path)],
+                capture_output=True, timeout=15,
+            )
+            if thumb_path.exists() and thumb_path.stat().st_size > 0:
+                return thumb_path
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        return None
+
+    def _load_thumbnails_async(self):
+        """Generate thumbnails in a background thread and update the Treeview."""
+        # Collect row_id -> project_dir mappings
+        items = []
+        for row_id in self.athlete_tree.get_children():
+            if row_id == "_empty_" or row_id.endswith("|_no_project_"):
+                continue
+            if "|" not in row_id:
+                continue
+            athlete_name, project_name = row_id.split("|", 1)
+            athlete_dir = ATHLETES / athlete_name
+            if project_name == "(default)":
+                project_dir = athlete_dir
+            else:
+                project_dir = athlete_dir / "projects" / project_name
+            if project_dir.exists():
+                items.append((row_id, project_dir))
+
+        if not items:
+            return
+
+        def generate_all():
+            results = []
+            for row_id, project_dir in items:
+                thumb = self._generate_thumbnail(project_dir)
+                results.append((row_id, thumb))
+            # Schedule UI update on the main thread
+            self.root.after(0, lambda: self._apply_thumbnails(results))
+
+        threading.Thread(target=generate_all, daemon=True).start()
+
+    def _apply_thumbnails(self, results: list):
+        """Apply generated thumbnails to Treeview rows (must be called on main thread)."""
+        for row_id, thumb_path in results:
+            try:
+                if not self.athlete_tree.exists(row_id):
+                    continue
+                if thumb_path and thumb_path.exists():
+                    img = tk.PhotoImage(file=str(thumb_path))
+                    self._thumbnail_images[row_id] = img
+                    self.athlete_tree.item(row_id, image=img)
+                else:
+                    placeholder = self._get_placeholder_image()
+                    self.athlete_tree.item(row_id, image=placeholder)
+            except Exception:
+                pass
 
     def get_selected_athlete(self) -> Optional[pathlib.Path]:
         athlete_dir, _ = self.get_selected_project()
@@ -814,6 +922,9 @@ class SoccerHypeGUI:
 
     def manage_player_profiles(self):
         ProfileManagementDialog(self.root)
+
+    def quick_start_wizard(self):
+        QuickStartWizard(self.root, self)
 
     def show_about(self):
         messagebox.showinfo("About SoccerHype",

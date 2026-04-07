@@ -1,7 +1,7 @@
 # SoccerHype - Athlete Highlight Video Builder
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FFmpeg Required](https://img.shields.io/badge/FFmpeg-required-red.svg)](https://ffmpeg.org/)
 
 Create professional athlete highlight videos with red spotlight player tracking. Built for parents, coaches, and athletes who need polished recruiting reels without expensive software.
@@ -51,7 +51,7 @@ python batch_render.py --jobs 2
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.10+
 - FFmpeg with libx264
 - 4GB+ RAM recommended
 

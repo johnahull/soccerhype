@@ -13,7 +13,7 @@ __pycache__/
 # Project-specific directories
 athletes/
 logs/
-templates/
+slate_templates/generated/
 
 # IDE files
 .vscode/
