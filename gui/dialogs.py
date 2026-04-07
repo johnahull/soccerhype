@@ -868,3 +868,308 @@ class PlayerInfoDialog:
     def cancel(self):
         self.result = None
         self.dialog.destroy()
+
+
+class QuickStartWizard:
+    """Step-by-step wizard that walks new users through the highlight video workflow."""
+
+    STEPS = [
+        {
+            "title": "Step 1: Create or Select an Athlete",
+            "desc": "Choose an existing athlete project or create a new one.",
+            "action_label": "New Athlete",
+            "check": "_check_athlete",
+        },
+        {
+            "title": "Step 2: Add Video Clips",
+            "desc": "Place source video clips (.mp4, .mov, etc.) into the clips_in/ folder.",
+            "action_label": "Open Folder",
+            "check": "_check_clips",
+        },
+        {
+            "title": "Step 3: Order Clips",
+            "desc": "Arrange the clips in the order you want them in the final video.",
+            "action_label": "Order Clips",
+            "check": "_check_order",
+        },
+        {
+            "title": "Step 4: Mark Plays",
+            "desc": "Mark the player position and spotlight moment in each clip.",
+            "action_label": "Mark Plays",
+            "check": "_check_marks",
+        },
+        {
+            "title": "Step 5: Render Video",
+            "desc": "Render the final highlight video with spotlight overlays and intro slate.",
+            "action_label": "Render",
+            "check": "_check_render",
+        },
+    ]
+
+    def __init__(self, parent, gui):
+        self.parent = parent
+        self.gui = gui
+        self.current_step = 0
+        self.athlete_dir: Optional[pathlib.Path] = None
+        self.project_dir: Optional[pathlib.Path] = None
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Quick Start Wizard")
+        self.dialog.geometry("520x340")
+        self.dialog.resizable(False, False)
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.geometry(f"+{parent.winfo_rootx() + 140}+{parent.winfo_rooty() + 100}")
+
+        self._build_ui()
+        self._detect_initial_state()
+        self._show_step()
+
+    def _build_ui(self):
+        main = tk.Frame(self.dialog)
+        main.pack(fill='both', expand=True, padx=20, pady=15)
+
+        self.progress_frame = tk.Frame(main)
+        self.progress_frame.pack(fill='x', pady=(0, 12))
+        self.step_labels = []
+        for i in range(len(self.STEPS)):
+            lbl = tk.Label(self.progress_frame, text=f" {i+1} ", font=("Segoe UI", 10, "bold"),
+                           relief='groove', width=3)
+            lbl.pack(side='left', padx=3)
+            self.step_labels.append(lbl)
+
+        self.title_var = tk.StringVar()
+        tk.Label(main, textvariable=self.title_var, font=("Segoe UI", 14, "bold"),
+                 anchor='w').pack(fill='x', pady=(0, 6))
+
+        self.desc_var = tk.StringVar()
+        tk.Label(main, textvariable=self.desc_var, font=("Segoe UI", 10),
+                 anchor='w', wraplength=470, justify='left').pack(fill='x')
+
+        self.status_var = tk.StringVar()
+        self.status_label = tk.Label(main, textvariable=self.status_var,
+                                     font=("Segoe UI", 10, "italic"), fg="#555",
+                                     anchor='w', wraplength=470, justify='left')
+        self.status_label.pack(fill='x', pady=(8, 0))
+
+        btn_frame = tk.Frame(main)
+        btn_frame.pack(fill='x', side='bottom', pady=(15, 0))
+
+        self.close_btn = tk.Button(btn_frame, text="Close", command=self.dialog.destroy,
+                                   font=("Segoe UI", 10))
+        self.close_btn.pack(side='left')
+
+        self.next_btn = tk.Button(btn_frame, text="Next \u2192", command=self._on_next,
+                                  font=("Segoe UI", 10, "bold"), bg="#4CAF50", fg="white")
+        self.next_btn.pack(side='right', padx=(5, 0))
+
+        self.action_btn = tk.Button(btn_frame, text="Action", command=self._on_action,
+                                    font=("Segoe UI", 10))
+        self.action_btn.pack(side='right', padx=(5, 0))
+
+        self.back_btn = tk.Button(btn_frame, text="\u2190 Back", command=self._on_back,
+                                  font=("Segoe UI", 10))
+        self.back_btn.pack(side='right')
+
+    def _show_step(self):
+        step = self.STEPS[self.current_step]
+        self.title_var.set(step["title"])
+        self.desc_var.set(step["desc"])
+        self.action_btn.config(text=step["action_label"])
+
+        for i, lbl in enumerate(self.step_labels):
+            if i < self.current_step:
+                lbl.config(bg="#4CAF50", fg="white")
+            elif i == self.current_step:
+                lbl.config(bg="#2196F3", fg="white")
+            else:
+                lbl.config(bg="#ddd", fg="#333")
+
+        self.back_btn.config(state='normal' if self.current_step > 0 else 'disabled')
+
+        ready, status_text = getattr(self, step["check"])()
+        self.status_var.set(status_text)
+        self.status_label.config(fg="#2e7d32" if ready else "#c62828")
+
+        is_last = self.current_step == len(self.STEPS) - 1
+        self.next_btn.config(text="Finish" if is_last else "Next \u2192",
+                             state='normal' if ready else 'disabled')
+
+    def _on_next(self):
+        if self.current_step < len(self.STEPS) - 1:
+            self.current_step += 1
+            self._show_step()
+        else:
+            self.dialog.destroy()
+
+    def _on_back(self):
+        if self.current_step > 0:
+            self.current_step -= 1
+            self._show_step()
+
+    def _on_action(self):
+        actions = [
+            self._action_new_athlete,
+            self._action_open_folder,
+            self._action_order_clips,
+            self._action_mark_plays,
+            self._action_render,
+        ]
+        actions[self.current_step]()
+
+    def _detect_initial_state(self):
+        """Pick up the currently selected project from the main GUI."""
+        sel = self.gui.athlete_tree.selection()
+        if not sel:
+            return
+        row_id = sel[0]
+        if row_id == "_empty_" or "|" not in row_id:
+            return
+        parts = row_id.split("|", 1)
+        from gui.utils import ATHLETES
+        adir = ATHLETES / parts[0]
+        if not adir.exists():
+            return
+        self.athlete_dir = adir
+        pname = parts[1]
+        if pname == "(default)":
+            self.project_dir = adir
+        elif pname != "_no_project_":
+            pdir = adir / "projects" / pname
+            if pdir.exists():
+                self.project_dir = pdir
+
+    # ── Readiness checks ────────────────────────────────────────────────
+
+    def _check_athlete(self):
+        if self.athlete_dir and self.athlete_dir.exists():
+            return True, f"\u2713 Athlete selected: {self.athlete_dir.name}"
+        athletes = self.gui.athlete_manager.discover_athletes()
+        if athletes:
+            return False, "Select an athlete from the main list, or create a new one."
+        return False, "No athletes found. Click 'New Athlete' to create one."
+
+    def _check_clips(self):
+        if not self.project_dir:
+            return False, "No project selected yet. Go back to Step 1."
+        clips_in = self.project_dir / "clips_in"
+        try:
+            if clips_in.exists():
+                clips = [f for f in clips_in.iterdir() if f.suffix.lower() in _VIDEO_EXTS]
+                if clips:
+                    return True, f"\u2713 {len(clips)} clip(s) found in clips_in/"
+        except OSError:
+            pass
+        return False, "No clips in clips_in/. Click 'Open Folder' to add videos."
+
+    def _check_order(self):
+        if not self.project_dir:
+            return False, "No project selected yet."
+        pj = self.project_dir / "project.json"
+        if pj.exists():
+            try:
+                data = json.loads(pj.read_text())
+                clips = data.get("clips", [])
+                if clips:
+                    return True, f"\u2713 {len(clips)} clip(s) in project order."
+            except (IOError, json.JSONDecodeError):
+                pass
+        clips_in = self.project_dir / "clips_in"
+        try:
+            if clips_in.exists() and any(
+                f.suffix.lower() in _VIDEO_EXTS for f in clips_in.iterdir()
+            ):
+                return False, "Clips found. Click 'Order Clips' to arrange them."
+        except OSError:
+            pass
+        return False, "Add clips first (Step 2)."
+
+    def _check_marks(self):
+        if not self.project_dir:
+            return False, "No project selected yet."
+        pj = self.project_dir / "project.json"
+        if pj.exists():
+            try:
+                from clip_sync import is_clip_marked
+                data = json.loads(pj.read_text())
+                clips = data.get("clips", [])
+                marked = sum(1 for c in clips if is_clip_marked(c))
+                if clips and marked == len(clips):
+                    return True, f"\u2713 All {marked} clip(s) marked."
+                if clips:
+                    return False, f"{marked}/{len(clips)} clips marked. Click 'Mark Plays' to continue."
+            except (IOError, json.JSONDecodeError):
+                pass
+        return False, "No marked clips. Use 'Mark Plays' to mark player positions."
+
+    def _check_render(self):
+        if not self.project_dir:
+            return False, "No project selected yet."
+        final = self.project_dir / "output" / "final.mp4"
+        if final.exists():
+            return True, f"\u2713 Rendered video exists: {final.name}"
+        return False, "Not yet rendered. Click 'Render' to create the highlight video."
+
+    # ── Actions ─────────────────────────────────────────────────────────
+
+    def _action_new_athlete(self):
+        before = set(self.gui.athlete_manager.discover_athletes())
+        self.gui.new_athlete()
+        after = self.gui.athlete_manager.discover_athletes()
+        new_athletes = [a for a in after if a not in before]
+        if new_athletes:
+            self.athlete_dir = new_athletes[0]
+            projects = self.gui.athlete_manager.discover_projects(self.athlete_dir)
+            if projects:
+                self.project_dir = projects[0]
+        self._show_step()
+
+    def _action_open_folder(self):
+        if not self.project_dir:
+            messagebox.showwarning("No Project", "Select or create an athlete first (Step 1).")
+            return
+        folder = self.project_dir / "clips_in"
+        folder.mkdir(parents=True, exist_ok=True)
+        import platform
+        import subprocess
+        system = platform.system()
+        try:
+            if system == "Linux":
+                subprocess.run(["xdg-open", str(folder)], check=True)
+            elif system == "Darwin":
+                subprocess.run(["open", str(folder)], check=True)
+            elif system == "Windows":
+                subprocess.run(["explorer", str(folder)], check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            messagebox.showinfo("Info", f"Open manually: {folder}")
+        self._show_step()
+
+    def _action_order_clips(self):
+        if not self.project_dir:
+            return
+        self._select_project_in_tree()
+        self.gui.reorder_clips()
+
+    def _action_mark_plays(self):
+        if not self.project_dir:
+            return
+        self._select_project_in_tree()
+        self.gui.mark_plays()
+
+    def _action_render(self):
+        if not self.project_dir:
+            return
+        self._select_project_in_tree()
+        self.gui.render_video()
+
+    def _select_project_in_tree(self):
+        """Ensure the wizard's project is selected in the main Treeview."""
+        if not self.athlete_dir or not self.project_dir:
+            return
+        v2 = is_v2_structure(self.athlete_dir)
+        pname = self.project_dir.name if v2 and self.project_dir != self.athlete_dir else "(default)"
+        row_id = f"{self.athlete_dir.name}|{pname}"
+        try:
+            self.gui.athlete_tree.selection_set(row_id)
+        except tk.TclError:
+            pass
